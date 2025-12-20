@@ -228,7 +228,38 @@ elif card == "💊 Supplements":
 elif card == "📊 Logs":
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.subheader("📊 Logs & Intelligence")
+# -------- MANUAL WEIGHT ENTRY --------
+st.markdown("### ⚖️ Log Weight")
 
+with st.form("weight_form"):
+    w_date = st.date_input("Date", value=date.today(), key="weight_date")
+    weight = st.number_input("Weight (kg)", 0.0, 300.0, step=0.1, key="weight_val")
+
+    if st.form_submit_button("🔥 Save Weight"):
+        c.execute("""
+            INSERT INTO weights (date, weight)
+            VALUES (?, ?)
+            ON CONFLICT(date) DO UPDATE SET weight=excluded.weight
+        """, (str(w_date), weight))
+        conn.commit()
+        st.success("Weight saved 📉")
+
+# -------- WEIGHT EXCEL UPLOAD --------
+st.markdown("### 📥 Upload Historical Weights")
+
+template = pd.DataFrame(columns=["date", "weight"])
+st.download_button(
+    "⬇️ Download Weight Template",
+    excel_template(template),
+    "weight_template.xlsx"
+)
+
+file = st.file_uploader("Upload Weight Excel", type=["xlsx"], key="weight_upload")
+
+if file and st.button("🔥 Import Weights"):
+    df_up = normalize_dates(pd.read_excel(file))
+    df_up.to_sql("weights", conn, if_exists="append", index=False)
+    st.success("Weight history imported ⚖️")
     # -------- USER PROFILE --------
     if "username" not in st.session_state:
         st.session_state.username = "default_user"
