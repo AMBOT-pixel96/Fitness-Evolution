@@ -325,42 +325,43 @@ elif card == "📊 Logs":
             st.success("Profile saved.")
 
     # ---------- DATA (FROM GOOGLE SHEETS) ----------
-weights_df = load_sheet("weights")
+    weights_df = load_sheet("weights")
 
-macros_raw = load_sheet("macros")
-workouts_raw = load_sheet("workouts")
+    macros_raw = load_sheet("macros")
+    workouts_raw = load_sheet("workouts")
 
-macros_df = (
-    macros_raw
-    .groupby("date", as_index=False)
-    .agg({
-        "calories": "sum",
-        "carbs": "sum",
-        "fats": "sum",
-        "protein": "sum"
-    })
-)
+    macros_df = (
+        macros_raw
+        .groupby("date", as_index=False)
+        .agg({
+            "calories": "sum",
+            "carbs": "sum",
+            "fats": "sum",
+            "protein": "sum"
+        })
+    )
 
-workouts_df = (
-    workouts_raw
-    .groupby("date", as_index=False)
-    .agg({"calories": "sum"})
-    .rename(columns={"calories": "burned"})
-)
-df = (
-    macros_df
-    .merge(workouts_df, on="date", how="outer")
-    .merge(weights_df, on="date", how="left")
-    .fillna(0)
-)
-if df.empty:
+    workouts_df = (
+        workouts_raw
+        .groupby("date", as_index=False)
+        .agg({"calories": "sum"})
+        .rename(columns={"calories": "burned"})
+    )
+
+    df = (
+        macros_df
+        .merge(workouts_df, on="date", how="outer")
+        .merge(weights_df, on="date", how="left")
+        .fillna(0)
+    )
+
+    if df.empty:
         st.info("No data yet.")
         st.stop()
 
     df["date"] = pd.to_datetime(df["date"])
     df = df.sort_values("date")
     df["Net"] = df["calories"] - df["burned"]
-
     # ---------- ACTIVITY ----------
     avg_burn = df.tail(7)["burned"].mean()
     activity = 1.2 if avg_burn < 200 else 1.35 if avg_burn < 400 else 1.5 if avg_burn < 600 else 1.65
