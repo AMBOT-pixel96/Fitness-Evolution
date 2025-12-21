@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
-from datetime import date
 import plotly.express as px
-from io import BytesIO
+import numpy as np
+from datetime import date
 from PIL import Image, ImageDraw, ImageFont
 import io
 import gspread
@@ -19,19 +19,13 @@ st.markdown("""
 <style>
 body { background-color: #0E1117; }
 .block-container { padding-top: 1rem; }
-.card {
-    background-color: #161B22;
-    padding: 1.2rem;
-    border-radius: 14px;
-    margin-bottom: 1rem;
-}
 h1,h2,h3,h4,h5,h6 { color: #E6EDF3; }
 </style>
 """, unsafe_allow_html=True)
 
 # ================== GOOGLE SHEETS ==================
 @st.cache_data(ttl=300)
-def load_sheet(tab_name):
+def load_sheet(tab):
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive"
@@ -43,7 +37,7 @@ def load_sheet(tab_name):
     )
 
     client = gspread.authorize(creds)
-    sheet = client.open("Fitness_Evolution_Master").worksheet(tab_name)
+    sheet = client.open("Fitness_Evolution_Master").worksheet(tab)
     df = pd.DataFrame(sheet.get_all_records())
 
     if "date" in df.columns:
@@ -51,184 +45,157 @@ def load_sheet(tab_name):
 
     return df
 
-# ================== HEADER ==================
-st.title("🔥 Fitness Evolution — Keto 60 Tracker")
-st.caption("Built on discipline, data & zero excuses 😌")
+# ================== LOAD DATA ==================
+weights_df = load_sheet("weights")
+macros_raw = load_sheet("macros")
+workouts_raw = load_sheet("workouts")
+profile_df = load_sheet("profile")
 
-card = st.radio(
-    "Select Module",
-    ["🏋️ Workout", "🥩 Macros", "💊 Supplements", "📊 Logs"],
-    horizontal=True
+# ================== MACROS ==================
+macros_raw["calories"] = (
+    macros_raw["protein"] * 4 +
+    macros_raw["carbs"] * 4 +
+    macros_raw["fats"] * 9
 )
 
-# ======================================================
-# ================== PLACEHOLDER TABS ==================
-# ======================================================
-if card in ["🏋️ Workout", "🥩 Macros", "💊 Supplements"]:
-    st.info("✋ Data entry disabled. Google Sheets is the source of truth now.")
+macros_df = (
+    macros_raw
+    .groupby("date", as_index=False)
+    .agg({
+        "protein": "sum",
+        "carbs": "sum",
+        "fats": "sum",
+        "calories": "sum"
+    })
+)
 
-# ======================================================
-# ================== LOGS + V2 =========================
-# ======================================================
-elif card == "📊 Logs":
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.subheader("📊 Logs & Intelligence")
+# ================== WORKOUTS ==================
+workouts_df = (
+    workouts_raw
+    .groupby("date", as_index=False)
+    .agg({"calories": "sum"})
+    .rename(columns={"calories": "burned"})
+)
 
-    # ---------- LOAD SHEETS ----------
-    weights_df = load_sheet("weights")
-    macros_raw = load_sheet("macros")
-    workouts_raw = load_sheet("workouts")
-    profile_df = load_sheet("profile")
+# ================== MERGE ==================
+df = (
+    macros_df
+    .merge(workouts_df, on="date", how="outer")
+    .merge(weights_df, on="date", how="left")
+    .fillna(0)
+)
 
-    if weights_df.empty or macros_raw.empty:
-        st.info("No data yet.")
-        st.stop()
+if df.empty:
+    st.warning("No data yet.")
+    st.stop()
 
-    # ---------- MACROS ----------
-    macros_raw["calories"] = (
-        macros_raw["protein"] * 4 +
-        macros_raw["carbs"] * 4 +
-        macros_raw["fats"] * 9
-    )
+df = df.sort_values("date")
+df["Net"] = df["calories"] - df["burned"]
 
-    macros_df = (
-        macros_raw
-        .groupby("date", as_index=False)
-        .agg({
-            "calories": "sum",
-            "protein": "sum",
-            "carbs": "sum",
-            "fats": "sum"
-        })
-    )
+# ================== PROFILE ==================
+prof = profile_df.iloc[0]
+W = df["weight"].iloc[-1]
+H = prof["height_cm"]
+A = prof["age"]
+gender = prof["gender"]
 
-    # ---------- WORKOUT BURN ----------
-    workouts_df = (
-        workouts_raw
-        .groupby("date", as_index=False)
-        .agg({"calories": "sum"})
-        .rename(columns={"calories": "burned"})
-    )
+# ================== ACTIVITY ==================
+avg_burn = df.tail(7)["burned"].mean()
+activity = 1.2 if avg_burn < 200 else 1.35 if avg_burn < 400 else 1.5 if avg_burn < 600 else 1.65
 
-    # ---------- MERGE ----------
-    df = (
-        macros_df
-        .merge(workouts_df, on="date", how="left")
-        .merge(weights_df, on="date", how="left")
-        .fillna(0)
-        .sort_values("date")
-    )
+# ================== MAINTENANCE ==================
+s = 5 if gender == "Male" else -161
+maintenance = int((10*W + 6.25*H - 5*A + s) * activity)
 
-    df["Net"] = df["calories"] - df["burned"]
+# ================== KETO (FIXED LOGIC) ==================
+df["protein_cals"] = df["protein"] * 4
+df["carb_cals"] = df["carbs"] * 4
+df["fat_cals"] = df["fats"] * 9
 
-    # ---------- ACTIVITY ----------
-    avg_burn = df.tail(7)["burned"].mean()
-    activity = (
-        1.2 if avg_burn < 200 else
-        1.35 if avg_burn < 400 else
-        1.5 if avg_burn < 600 else
-        1.65
-    )
+df["Keto"] = (
+    (df["carbs"] <= 25) &
+    (df["fat_cals"] > df["protein_cals"]) &
+    (df["fat_cals"] > df["carb_cals"])
+)
 
-    # ---------- PROFILE ----------
-    p = profile_df.iloc[0]
-    W = weights_df["weight"].iloc[-1]
-    H = p["height_cm"]
-    A = p["age"]
-    s = 5 if p["gender"] == "Male" else -161
+# ================== METRICS ==================
+latest = df.iloc[-1]
+deficit_pct = round((maintenance - latest["Net"]) / maintenance * 100, 1)
+weekly_loss = round((abs(df.tail(7)["Net"].mean()) * 7) / 7700, 2)
 
-    maintenance = int((10*W + 6.25*H - 5*A + s) * activity)
+# ================== HEADER ==================
+st.title("🔥 Fitness Evolution — Command Center")
+st.caption("Sheets → Intelligence → Action")
 
-    sel = df.iloc[-1]
-    deficit_pct = round((maintenance - sel["Net"]) / maintenance * 100, 1)
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("⚖️ Weight", f"{W} kg")
+c2.metric("🔥 Maintenance", f"{maintenance} kcal")
+c3.metric("📉 Deficit %", f"{deficit_pct}%")
+c4.metric("🔮 Weekly Projection", f"{weekly_loss} kg")
 
-    keto = (
-        sel["carbs"] < 25 and
-        (sel["fats"]*9 / sel["calories"]) >= 0.6
-    )
+st.caption(
+    f"Keto Today: {'🟢 YES' if latest['Keto'] else '🔴 NO'} | "
+    f"Activity Multiplier: {activity}"
+)
 
-    proj = round(W - (abs(df.tail(7)["Net"].mean())*7/7700), 2)
+# ================== CHARTS ==================
+st.plotly_chart(px.line(df, x="date", y="weight", title="Weight Trend", markers=True), True)
+st.plotly_chart(px.bar(df, x="date", y=["calories","burned"], barmode="group",
+                       title="Calories In vs Out"), True)
+st.plotly_chart(px.line(df, x="date", y="Net", title="Net Calories", markers=True), True)
 
-    # ---------- METRICS ----------
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("⚖️ Weight", f"{W} kg")
-    c2.metric("🔥 Maintenance", f"{maintenance} kcal")
-    c3.metric("📉 Deficit %", f"{deficit_pct}%")
-    c4.metric("🔮 7-Day Projection", f"{proj} kg")
+df["Maintenance"] = maintenance
+st.plotly_chart(px.line(df, x="date", y=["Maintenance","Net"],
+                        title="Maintenance vs Net"), True)
 
-    st.caption(f"Keto: {'🟢 YES' if keto else '🔴 NO'} | Activity Multiplier: {activity}")
+st.plotly_chart(px.bar(df, x="date", y="Net", title="Net Calories by Day")
+                 .add_scatter(x=df["date"], y=df["Net"].rolling(3).mean(),
+                              mode="lines+markers", name="3-Day Avg"), True)
 
-    # ---------- CHARTS ----------
-    st.plotly_chart(px.line(df, x="date", y="weight", title="Weight Trend", markers=True), True)
-    st.plotly_chart(px.bar(df, x="date", y=["calories","burned"], barmode="group", title="Calories In vs Out"), True)
-    st.plotly_chart(px.line(df, x="date", y="Net", title="Net Calories", markers=True), True)
+# ================== DONUTS ==================
+st.plotly_chart(px.pie(
+    values=[latest["protein_cals"], latest["carb_cals"], latest["fat_cals"]],
+    names=["Protein","Carbs","Fats"],
+    hole=0.55,
+    title="Macro Split"
+), True)
 
-    df["Maintenance"] = maintenance
-    st.plotly_chart(
-        px.line(df, x="date", y=["Maintenance","Net"], title="Maintenance vs Net Calories"),
-        True
-    )
+burn_split = workouts_raw.groupby("workout_type", as_index=False)["calories"].sum()
+st.plotly_chart(px.pie(burn_split, values="calories", names="workout_type",
+                       hole=0.5, title="Burn Split"), True)
 
-    # ---------- DONUTS ----------
-    last = df.iloc[-1]
-    st.plotly_chart(px.pie(
-        values=[last["protein"]*4, last["carbs"]*4, last["fats"]*9],
-        names=["Protein","Carbs","Fats"],
-        hole=0.55,
-        title="Macro Split"
-    ), True)
+# ================== SCORECARD IMAGE ==================
+st.markdown("### 📸 Export Daily Scorecard")
 
-    wt = (
-        workouts_raw
-        .groupby("workout_type", as_index=False)
-        .agg({"calories": "sum"})
-    )
+if st.button("Generate Image"):
+    img = Image.new("RGB", (1080,1080), "#0E1117")
+    d = ImageDraw.Draw(img)
 
-    if not wt.empty:
-        st.plotly_chart(px.pie(
-            wt,
-            values="calories",
-            names="workout_type",
-            hole=0.5,
-            title="Burn Split by Workout Type"
-        ), True)
+    try:
+        f = ImageFont.truetype("DejaVuSans-Bold.ttf", 48)
+    except:
+        f = ImageFont.load_default()
 
-    # ---------- SCORECARD EXPORT ----------
-    st.markdown("### 📸 Export Scorecard")
+    y = 80
+    lines = [
+        "FITNESS EVOLUTION",
+        f"Weight: {W} kg",
+        f"Maintenance: {maintenance}",
+        f"Net Calories: {int(latest['Net'])}",
+        f"Deficit %: {deficit_pct}",
+        f"Keto: {'YES' if latest['Keto'] else 'NO'}",
+        f"Weekly Projection: {weekly_loss} kg"
+    ]
 
-    if st.button("📸 Generate Image"):
-        img = Image.new("RGB", (1080,1080), "#0E1117")
-        d = ImageDraw.Draw(img)
+    for l in lines:
+        d.text((60,y), l, fill="#58A6FF", font=f)
+        y += 70
 
-        try:
-            f = ImageFont.truetype("DejaVuSans-Bold.ttf", 48)
-        except:
-            f = ImageFont.load_default()
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
 
-        y = 80
-        d.text((60,y), "FITNESS EVOLUTION", fill="#E6EDF3", font=f); y+=80
-
-        lines = [
-            f"Date: {sel['date'].date()}",
-            f"Weight: {W} kg",
-            f"Net Calories: {int(sel['Net'])}",
-            f"Maintenance: {maintenance}",
-            f"Deficit %: {deficit_pct}",
-            f"Keto: {'YES' if keto else 'NO'}"
-        ]
-
-        for l in lines:
-            d.text((60,y), l, fill="#58A6FF", font=f); y+=60
-
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        buf.seek(0)
-
-        st.download_button(
-            "⬇️ Download Image",
-            buf,
-            "fitness_scorecard.png",
-            "image/png"
-        )
-
-    st.markdown("</div>", unsafe_allow_html=True)
+    st.download_button("⬇️ Download Scorecard",
+                       buf,
+                       "fitness_scorecard.png",
+                       "image/png")
