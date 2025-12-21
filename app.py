@@ -181,7 +181,7 @@ def plot_macro_donut_img(row):
     return Image.open(buf)
 
 def generate_summary_image():
-    img = Image.new("RGB", (1400,1000), "#0E1117")
+    img = Image.new("RGB", (1400, 1000), "#0E1117")
     d = ImageDraw.Draw(img)
 
     try:
@@ -190,7 +190,12 @@ def generate_summary_image():
     except:
         f_big = f_med = ImageFont.load_default()
 
-    d.text((40,30), "FITNESS EVOLUTION — DAILY SUMMARY", fill="#E6EDF3", font=f_big)
+    d.text(
+        (40, 30),
+        "FITNESS EVOLUTION — DAILY SUMMARY",
+        fill="#E6EDF3",
+        font=f_big
+    )
 
     metrics = [
         f"Weight: {W} kg",
@@ -198,21 +203,20 @@ def generate_summary_image():
         f"Net Calories: {int(latest['Net'])}",
         f"Deficit %: {deficit_pct}",
         f"Keto: {'YES' if latest['Keto'] else 'NO'}",
-        f"Weekly Projection: {weekly_loss} kg"
+        f"Weekly Projection: {weekly_loss} kg",
     ]
 
     y = 120
-for m in metrics:
-    d.text((40, y), m, fill="#58A6FF", font=f_med)
-    y += 42
+    for m in metrics:
+        d.text((40, y), m, fill="#58A6FF", font=f_med)
+        y += 42
 
-# ⬇️ MUST start at SAME indentation as 'y = 120'
-CHART_Y = 420
+    # ✅ charts BELOW metrics
+    CHART_Y = 420
+    img.paste(plot_weight_img(df), (40, CHART_Y))
+    img.paste(plot_macro_donut_img(latest), (520, CHART_Y))
 
-img.paste(plot_weight_img(df), (40, CHART_Y))
-img.paste(plot_macro_donut_img(latest), (520, CHART_Y))
-
-return img
+    return img
 
 # ================== EMAIL ENGINE ==================
 def build_email_body():
