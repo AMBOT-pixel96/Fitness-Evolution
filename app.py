@@ -377,19 +377,20 @@ avg_burn = df.tail(7)["burned"].mean()
 activity = 1.2 if avg_burn < 200 else 1.35 if avg_burn < 400 else 1.5 if avg_burn < 600 else 1.65
 
     profile_df = pd.read_sql(
-        "SELECT * FROM user_profile WHERE username=?",
-        conn,
-        params=[username]
-    )
+    "SELECT * FROM user_profile WHERE username=?",
+    conn,
+    params=[username]
+)
 
-    maintenance = None
-    W = None
-    if not profile_df.empty and not weights_df.empty:
-        W = weights_df["weight"].iloc[-1]
-        H = profile_df["height_cm"].iloc[0]
-        A = profile_df["age"].iloc[0]
-        s = 5 if profile_df["gender"].iloc[0] == "Male" else -161
-        maintenance = int((10*W + 6.25*H - 5*A + s) * activity)
+maintenance = None
+W = None
+
+if not profile_df.empty and not weights_df.empty:
+    W = weights_df["weight"].iloc[-1]
+    H = profile_df["height_cm"].iloc[0]
+    A = profile_df["age"].iloc[0]
+    s = 5 if profile_df["gender"].iloc[0] == "Male" else -161
+    maintenance = int((10*W + 6.25*H - 5*A + s) * activity)
 
     sel = df.iloc[-1]
     deficit_pct = round((maintenance - sel["Net"]) / maintenance * 100, 1) if maintenance else None
