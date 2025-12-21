@@ -347,10 +347,12 @@ workouts_df = (
     .agg({"calories": "sum"})
     .rename(columns={"calories": "burned"})
 )
-    df = macros_df.merge(workouts_df, on="date", how="outer") \
-                  .merge(weights_df, on="date", how="left") \
-                  .fillna(0)
-
+    df = (
+    macros_df
+    .merge(workouts_df, on="date", how="outer")
+    .merge(weights_df, on="date", how="left")
+    .fillna(0)
+)
     if df.empty:
         st.info("No data yet.")
         st.stop()
