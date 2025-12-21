@@ -347,7 +347,7 @@ workouts_df = (
     .agg({"calories": "sum"})
     .rename(columns={"calories": "burned"})
 )
-    df = (
+df = (
     macros_df
     .merge(workouts_df, on="date", how="outer")
     .merge(weights_df, on="date", how="left")
