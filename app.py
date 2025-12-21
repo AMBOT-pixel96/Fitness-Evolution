@@ -181,7 +181,7 @@ def plot_macro_donut_img(row):
     return Image.open(buf)
 
 def generate_summary_image():
-    img = Image.new("RGB", (1400, 1000), "#0E1117")
+    img = Image.new("RGB", (1400, 1200), "#0E1117")
     d = ImageDraw.Draw(img)
 
     try:
