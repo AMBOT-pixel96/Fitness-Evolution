@@ -190,9 +190,15 @@ def generate_summary_image():
     except:
         f_big = f_med = ImageFont.load_default()
 
-    d.text((40, 30), "FITNESS EVOLUTION — DAILY SUMMARY",
-           fill="#E6EDF3", font=f_big)
+    # ---------- HEADER ----------
+    d.text(
+        (40, 30),
+        "FITNESS EVOLUTION — DAILY SUMMARY",
+        fill="#E6EDF3",
+        font=f_big
+    )
 
+    # ---------- METRICS ----------
     metrics = [
         f"Weight: {W} kg",
         f"Maintenance: {maintenance} kcal",
@@ -207,16 +213,14 @@ def generate_summary_image():
         d.text((40, y), m, fill="#58A6FF", font=f_med)
         y += 42
 
-    CHART_Y = 420
-
+    # ---------- CHART PLACEMENT (NO OVERLAP) ----------
     WEIGHT_Y = 420
-PIE_Y    = WEIGHT_Y + 180  # push pie DOWN
+    PIE_Y = WEIGHT_Y + 180
 
-img.paste(plot_weight_img(df), (40, WEIGHT_Y))
-img.paste(plot_macro_donut_img(latest), (40, PIE_Y))
+    img.paste(plot_weight_img(df), (40, WEIGHT_Y))
+    img.paste(plot_macro_donut_img(latest), (40, PIE_Y))
 
     return img
-
 # ================== EMAIL ENGINE ==================
 def build_email_body():
     keto = "YES 🟢" if latest["Keto"] else "NO 🔴"
