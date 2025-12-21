@@ -276,12 +276,3 @@ st.download_button(
 if st.button("📧 Send Test Email"):
     send_email(buf.getvalue())
     st.success("Email sent 📬 Check inbox")
-# ================== AUTO EMAIL (GITHUB ACTIONS) ==================
-import os
-
-if os.getenv("AUTO_EMAIL") == "1":
-    img = generate_summary_image()
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    buf.seek(0)
-    send_email(buf.getvalue())
