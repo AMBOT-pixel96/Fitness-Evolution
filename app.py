@@ -324,21 +324,29 @@ elif card == "📊 Logs":
             conn.commit()
             st.success("Profile saved.")
 
-    # ---------- DATA ----------
-    weights_df = load_sheet("weights")
-    macros_df = pd.read_sql("""
-        SELECT date,
-               SUM(calories) calories,
-               SUM(carbs) carbs,
-               SUM(fats) fats,
-               SUM(protein) protein
-        FROM macros GROUP BY date
-    """, conn)
-    workouts_df = pd.read_sql("""
-        SELECT date, SUM(calories) burned
-        FROM workouts GROUP BY date
-    """, conn)
+    # ---------- DATA (FROM GOOGLE SHEETS) ----------
+weights_df = load_sheet("weights")
 
+macros_raw = load_sheet("macros")
+workouts_raw = load_sheet("workouts")
+
+macros_df = (
+    macros_raw
+    .groupby("date", as_index=False)
+    .agg({
+        "calories": "sum",
+        "carbs": "sum",
+        "fats": "sum",
+        "protein": "sum"
+    })
+)
+
+workouts_df = (
+    workouts_raw
+    .groupby("date", as_index=False)
+    .agg({"calories": "sum"})
+    .rename(columns={"calories": "burned"})
+)
     df = macros_df.merge(workouts_df, on="date", how="outer") \
                   .merge(weights_df, on="date", how="left") \
                   .fillna(0)
@@ -423,7 +431,11 @@ elif card == "📊 Logs":
         title="Macro Split"
     ), True)
 
-    wt = pd.read_sql("SELECT workout_type, SUM(calories) calories FROM workouts GROUP BY workout_type", conn)
+    wt = (
+    workouts_raw
+    .groupby("workout_type", as_index=False)
+    .agg({"calories": "sum"})
+)
     if not wt.empty:
         st.plotly_chart(px.pie(wt, values="calories", names="workout_type", hole=0.5,
                                title="Burn Split by Workout Type"), True)
