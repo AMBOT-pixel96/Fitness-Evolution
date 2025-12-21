@@ -129,23 +129,21 @@ if card == "🏋️ Workout":
     st.dataframe(df, use_container_width=True)
 
     st.markdown("### 📥 Upload Historical Workouts")
-    st.download_button("⬇️ Template", excel_template(
-        pd.DataFrame(columns=["date","workout_type","exercise","duration","sets","calories"])
-    ), "workout_template.xlsx")
+    st.download_button(
+        "⬇️ Template",
+        excel_template(pd.DataFrame(
+            columns=["date","workout_type","exercise","duration","sets","calories"]
+        )),
+        "workout_template.xlsx"
+    )
 
     file = st.file_uploader("Upload Workout Excel", type="xlsx")
     if file and st.button("🔥 Import Workouts"):
         df_up = normalize_dates(pd.read_excel(file))
-
-df_up = df_up[[
-    "date","workout_type","exercise","duration","sets","calories"
-]]
-
-df_up.to_sql("workouts", conn, if_exists="append", index=False)
-
-st.success("Workout history imported.")
-st.rerun()
+        df_up = df_up[["date","workout_type","exercise","duration","sets","calories"]]
+        df_up.to_sql("workouts", conn, if_exists="append", index=False)
         st.success("Workout history imported.")
+        st.rerun()
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -177,29 +175,26 @@ elif card == "🥩 Macros":
     st.dataframe(df, use_container_width=True)
 
     st.markdown("### 📥 Upload Historical Macros")
-    st.download_button("⬇️ Template", excel_template(
-        pd.DataFrame(columns=["date","meal","protein","carbs","fats"])
-    ), "macros_template.xlsx")
+    st.download_button(
+        "⬇️ Template",
+        excel_template(pd.DataFrame(
+            columns=["date","meal","protein","carbs","fats"]
+        )),
+        "macros_template.xlsx"
+    )
 
     file = st.file_uploader("Upload Macros Excel", type="xlsx")
     if file and st.button("🔥 Import Macros"):
         df_up = normalize_dates(pd.read_excel(file))
-
-df_up = df_up[[
-    "date","meal","protein","carbs","fats"
-]]
-
-df_up["calories"] = (
-    df_up["protein"]*4 +
-    df_up["carbs"]*4 +
-    df_up["fats"]*9
-)
-
-df_up.to_sql("macros", conn, if_exists="append", index=False)
-
-st.success("Macro history imported.")
-st.rerun()
+        df_up = df_up[["date","meal","protein","carbs","fats"]]
+        df_up["calories"] = (
+            df_up["protein"]*4 +
+            df_up["carbs"]*4 +
+            df_up["fats"]*9
+        )
+        df_up.to_sql("macros", conn, if_exists="append", index=False)
         st.success("Macro history imported.")
+        st.rerun()
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -228,23 +223,21 @@ elif card == "💊 Supplements":
     st.dataframe(df, use_container_width=True)
 
     st.markdown("### 📥 Upload Historical Supplements")
-    st.download_button("⬇️ Template", excel_template(
-        pd.DataFrame(columns=["date","supplement","dosage","unit"])
-    ), "supplements_template.xlsx")
+    st.download_button(
+        "⬇️ Template",
+        excel_template(pd.DataFrame(
+            columns=["date","supplement","dosage","unit"]
+        )),
+        "supplements_template.xlsx"
+    )
 
     file = st.file_uploader("Upload Supplements Excel", type="xlsx")
     if file and st.button("🔥 Import Supplements"):
         df_up = normalize_dates(pd.read_excel(file))
-        df_up = normalize_dates(pd.read_excel(file))
-
-df_up = df_up[[
-    "date","supplement","dosage","unit"
-]]
-
-df_up.to_sql("supplements", conn, if_exists="append", index=False)
-
-st.success("Supplement history imported.")
-st.rerun()
+        df_up = df_up[["date","supplement","dosage","unit"]]
+        df_up.to_sql("supplements", conn, if_exists="append", index=False)
+        st.success("Supplement history imported.")
+        st.rerun()
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -267,11 +260,14 @@ elif card == "📊 Logs":
             """, (str(w_date), weight))
             conn.commit()
             st.success("Weight saved.")
+            st.rerun()
 
     st.markdown("### 📥 Upload Historical Weights")
-    st.download_button("⬇️ Template", excel_template(
-        pd.DataFrame(columns=["date","weight"])
-    ), "weight_template.xlsx")
+    st.download_button(
+        "⬇️ Template",
+        excel_template(pd.DataFrame(columns=["date","weight"])),
+        "weight_template.xlsx"
+    )
 
     file = st.file_uploader("Upload Weight Excel", type="xlsx")
     if file and st.button("🔥 Import Weights"):
@@ -284,6 +280,7 @@ elif card == "📊 Logs":
             """, (r["date"], r["weight"]))
         conn.commit()
         st.success("Weight history imported.")
+        st.rerun()
 
     # ---------- PROFILE ----------
     with st.expander("⚙️ User Profile"):
@@ -304,67 +301,75 @@ elif card == "📊 Logs":
             st.success("Profile saved.")
 
     # ---------- DATA ----------
-    weights = pd.read_sql("SELECT * FROM weights ORDER BY date", conn)
-    macros = pd.read_sql("""
+    weights_df = pd.read_sql("SELECT * FROM weights ORDER BY date", conn)
+    macros_df = pd.read_sql("""
         SELECT date, SUM(calories) calories, SUM(carbs) carbs, SUM(fats) fats
         FROM macros GROUP BY date
     """, conn)
-    workouts = pd.read_sql("""
+    workouts_df = pd.read_sql("""
         SELECT date, SUM(calories) burned
         FROM workouts GROUP BY date
     """, conn)
 
-    df = macros.merge(workouts, on="date", how="outer").merge(weights, on="date", how="left").fillna(0)
+    df = macros_df.merge(workouts_df, on="date", how="outer") \
+                  .merge(weights_df, on="date", how="left") \
+                  .fillna(0)
+
+    if df.empty:
+        st.info("No data yet.")
+        st.stop()
+
     df["date"] = pd.to_datetime(df["date"])
+    df = df.sort_values("date")
     df["Net"] = df["calories"] - df["burned"]
 
     # ---------- ACTIVITY ----------
     avg_burn = df.tail(7)["burned"].mean()
     activity = 1.2 if avg_burn < 200 else 1.35 if avg_burn < 400 else 1.5 if avg_burn < 600 else 1.65
 
-    profile = pd.read_sql("SELECT * FROM user_profile WHERE username=?", conn, params=[username])
+    profile_df = pd.read_sql(
+        "SELECT * FROM user_profile WHERE username=?",
+        conn,
+        params=[username]
+    )
+
     maintenance = None
-    if not profile.empty and not weights.empty:
-        W = weights["weight"].iloc[-1]
-        H = profile["height_cm"].iloc[0]
-        A = profile["age"].iloc[0]
-        s = 5 if profile["gender"].iloc[0] == "Male" else -161
+    W = None
+    if not profile_df.empty and not weights_df.empty:
+        W = weights_df["weight"].iloc[-1]
+        H = profile_df["height_cm"].iloc[0]
+        A = profile_df["age"].iloc[0]
+        s = 5 if profile_df["gender"].iloc[0] == "Male" else -161
         maintenance = int((10*W + 6.25*H - 5*A + s) * activity)
 
-    # ---------- METRICS ----------
     sel = df.iloc[-1]
-    deficit_pct = round((maintenance - sel["Net"]) / maintenance * 100,1) if maintenance else None
-    keto = sel["carbs"] < 25 and sel["fats"]*9/sel["calories"] >= 0.6 if sel["calories"]>0 else False
-    proj = round(W - (abs(df.tail(7)["Net"].mean())*7/7700),2) if not weights.empty else None
+    deficit_pct = round((maintenance - sel["Net"]) / maintenance * 100, 1) if maintenance else None
+    keto = sel["carbs"] < 25 and sel["fats"]*9/sel["calories"] >= 0.6 if sel["calories"] > 0 else False
+    proj = round(W - (abs(df.tail(7)["Net"].mean())*7/7700), 2) if W else None
 
-    c1,c2,c3,c4 = st.columns(4)
     c1, c2, c3, c4 = st.columns(4)
 
-c1.metric(
-    "⚖️ Weight",
-    f"{W} kg" if not weights.empty else "-"
-)
+    c1.metric("⚖️ Weight", f"{W} kg" if W else "-")
+    c2.metric("🔥 Maintenance", f"{maintenance} kcal" if maintenance else "-")
+    c3.metric("📉 Deficit %", f"{deficit_pct}%" if deficit_pct else "-")
+    c4.metric("🔮 7-Day Projection", f"{proj} kg" if proj else "-")
 
-c2.metric(
-    "🔥 Maintenance",
-    f"{maintenance} kcal" if maintenance else "-"
-)
+    st.caption(
+        f"Keto: {'🟢 YES' if keto else '🔴 NO'} | "
+        f"Activity Multiplier: {activity}"
+    )
 
-c3.metric(
-    "📉 Deficit %",
-    f"{deficit_pct}%" if maintenance else "-"
-)
-
-c4.metric(
-    "🔮 7-Day Projection",
-    f"{proj} kg" if proj else "-"
-)
-
-    st.caption(f"Keto: {'🟢 YES' if keto else '🔴 NO'} | Activity Multiplier: {activity}")
-
-    # ---------- CHARTS ----------
-    st.plotly_chart(px.line(df, x="date", y="weight", title="Weight Trend", markers=True), use_container_width=True)
-    st.plotly_chart(px.bar(df, x="date", y=["calories","burned"], barmode="group", title="Calories In vs Out"), use_container_width=True)
-    st.plotly_chart(px.line(df, x="date", y="Net", title="Net Calories", markers=True), use_container_width=True)
+    st.plotly_chart(
+        px.line(df, x="date", y="weight", title="Weight Trend", markers=True),
+        use_container_width=True
+    )
+    st.plotly_chart(
+        px.bar(df, x="date", y=["calories","burned"], barmode="group", title="Calories In vs Out"),
+        use_container_width=True
+    )
+    st.plotly_chart(
+        px.line(df, x="date", y="Net", title="Net Calories", markers=True),
+        use_container_width=True
+    )
 
     st.markdown("</div>", unsafe_allow_html=True)
