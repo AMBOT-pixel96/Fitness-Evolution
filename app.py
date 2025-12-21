@@ -89,6 +89,7 @@ def excel_template(df):
 
 def normalize_dates(df):
     df["date"] = pd.to_datetime(df["date"], dayfirst=True).dt.strftime("%Y-%m-%d")
+    return df
     
 @st.cache_data(ttl=300)
 def load_sheet(tab_name):
