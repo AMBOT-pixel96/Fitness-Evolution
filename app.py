@@ -325,43 +325,52 @@ elif card == "📊 Logs":
             st.success("Profile saved.")
 
     # ---------- DATA (FROM GOOGLE SHEETS) ----------
-    weights_df = load_sheet("weights")
 
-    macros_raw = load_sheet("macros")
-    workouts_raw = load_sheet("workouts")
+weights_df = load_sheet("weights")
+macros_raw = load_sheet("macros")
+workouts_raw = load_sheet("workouts")
 
-    macros_df = (
-        macros_raw
-        .groupby("date", as_index=False)
-        .agg({
-            "calories": "sum",
-            "carbs": "sum",
-            "fats": "sum",
-            "protein": "sum"
-        })
-    )
+# ---- MACROS: derive calories first ----
+macros_raw["calories"] = (
+    macros_raw["protein"] * 4 +
+    macros_raw["carbs"] * 4 +
+    macros_raw["fats"] * 9
+)
 
-    workouts_df = (
-        workouts_raw
-        .groupby("date", as_index=False)
-        .agg({"calories": "sum"})
-        .rename(columns={"calories": "burned"})
-    )
+macros_df = (
+    macros_raw
+    .groupby("date", as_index=False)
+    .agg({
+        "calories": "sum",
+        "carbs": "sum",
+        "fats": "sum",
+        "protein": "sum"
+    })
+)
 
-    df = (
-        macros_df
-        .merge(workouts_df, on="date", how="outer")
-        .merge(weights_df, on="date", how="left")
-        .fillna(0)
-    )
+# ---- WORKOUT BURN ----
+workouts_df = (
+    workouts_raw
+    .groupby("date", as_index=False)
+    .agg({"calories": "sum"})
+    .rename(columns={"calories": "burned"})
+)
 
-    if df.empty:
-        st.info("No data yet.")
-        st.stop()
+# ---- MERGE EVERYTHING ----
+df = (
+    macros_df
+    .merge(workouts_df, on="date", how="outer")
+    .merge(weights_df, on="date", how="left")
+    .fillna(0)
+)
 
-    df["date"] = pd.to_datetime(df["date"])
-    df = df.sort_values("date")
-    df["Net"] = df["calories"] - df["burned"]
+if df.empty:
+    st.info("No data yet.")
+    st.stop()
+
+df["date"] = pd.to_datetime(df["date"])
+df = df.sort_values("date")
+df["Net"] = df["calories"] - df["burned"]
     # ---------- ACTIVITY ----------
     avg_burn = df.tail(7)["burned"].mean()
     activity = 1.2 if avg_burn < 200 else 1.35 if avg_burn < 400 else 1.5 if avg_burn < 600 else 1.65
