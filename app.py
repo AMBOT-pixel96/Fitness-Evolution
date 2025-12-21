@@ -215,7 +215,7 @@ def generate_summary_image():
 
     # ---------- CHART PLACEMENT (NO OVERLAP) ----------
     WEIGHT_Y = 420
-    PIE_Y = WEIGHT_Y + 240
+    PIE_Y = WEIGHT_Y + 400
 
     img.paste(plot_weight_img(df), (40, WEIGHT_Y))
     img.paste(plot_macro_donut_img(latest), (40, PIE_Y))
