@@ -179,6 +179,7 @@ def plot_macro_donut_img(row):
     plt.close(fig)
     buf.seek(0)
     return Image.open(buf)
+
 def generate_summary_image():
     img = Image.new("RGB", (1400,1000), "#0E1117")
     d = ImageDraw.Draw(img)
@@ -209,64 +210,6 @@ def generate_summary_image():
     img.paste(plot_macro_donut_img(latest), (520, 360))
 
     return img
-# ================== EXPORT SUMMARY IMAGE ==================
-st.markdown("### 📸 Export Summary")
-
-if st.button("Generate Image"):
-    img = generate_summary_image()
-
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    buf.seek(0)
-
-    st.image(img, use_column_width=True)
-    st.download_button(
-        "⬇️ Download Image",
-        buf,
-        "fitness_summary.png",
-        "image/png"
-    )
-    d = ImageDraw.Draw(img)
-
-    try:
-        f_big = ImageFont.truetype("DejaVuSans-Bold.ttf", 48)
-        f_med = ImageFont.truetype("DejaVuSans-Bold.ttf", 32)
-    except:
-        f_big = f_med = ImageFont.load_default()
-
-    d.text((40,30), "FITNESS EVOLUTION — DAILY SUMMARY", fill="#E6EDF3", font=f_big)
-
-    metrics = [
-        f"Weight: {W} kg",
-        f"Maintenance: {maintenance} kcal",
-        f"Net Calories: {int(latest['Net'])}",
-        f"Deficit %: {deficit_pct}",
-        f"Keto: {'YES' if latest['Keto'] else 'NO'}",
-        f"Weekly Projection: {weekly_loss} kg"
-    ]
-
-    y = 120
-    for m in metrics:
-        d.text((40,y), m, fill="#58A6FF", font=f_med)
-        y += 42
-
-    img.paste(plot_weight_img(df), (40, 380))
-    img.paste(plot_macro_donut_img(latest), (520, 360))
-
-    buf = io.BytesIO()
-    if st.button("📧 Send Test Email"):
-    img = generate_summary_image()
-
-    img_buf = io.BytesIO()
-    img.save(img_buf, format="PNG")
-    img_buf.seek(0)
-
-    send_email(img_buf.read())
-    st.success("Email sent 📬 Check inbox")
-    buf.seek(0)
-
-    st.image(img, use_column_width=True)
-    st.download_button("⬇️ Download Image", buf, "fitness_summary.png", "image/png")
 
 # ================== EMAIL ENGINE ==================
 def build_email_body():
@@ -313,10 +256,23 @@ def send_email(image_bytes):
         )
         server.send_message(msg)
 
-# ================== TEST EMAIL ==================
+# ================== EXPORT SUMMARY ==================
+st.markdown("### 📸 Export Summary")
+
+img = generate_summary_image()
+buf = io.BytesIO()
+img.save(buf, format="PNG")
+buf.seek(0)
+
+st.image(img, use_column_width=True)
+
+st.download_button(
+    "⬇️ Download Image",
+    buf,
+    "fitness_summary.png",
+    "image/png"
+)
+
 if st.button("📧 Send Test Email"):
-    img_buf = io.BytesIO()
-    img.save(img_buf, format="PNG")
-    img_buf.seek(0)
-    send_email(img_buf.read())
+    send_email(buf.getvalue())
     st.success("Email sent 📬 Check inbox")
