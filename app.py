@@ -7,6 +7,8 @@ from io import BytesIO
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 import io
+import gspread
+from google.oauth2.service_account import Credentials
 
 # ================== PAGE CONFIG ==================
 st.set_page_config(
@@ -87,6 +89,27 @@ def excel_template(df):
 
 def normalize_dates(df):
     df["date"] = pd.to_datetime(df["date"], dayfirst=True).dt.strftime("%Y-%m-%d")
+    
+@st.cache_data(ttl=300)
+def load_sheet(tab_name):
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+
+    creds = Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=scopes
+    )
+
+    client = gspread.authorize(creds)
+    sheet = client.open("Fitness_Evolution_Master").worksheet(tab_name)
+
+    df = pd.DataFrame(sheet.get_all_records())
+
+    if "date" in df.columns:
+        df["date"] = pd.to_datetime(df["date"], dayfirst=True).dt.strftime("%Y-%m-%d")
+
     return df
 
 # ================== HEADER ==================
@@ -301,7 +324,7 @@ elif card == "📊 Logs":
             st.success("Profile saved.")
 
     # ---------- DATA ----------
-    weights_df = pd.read_sql("SELECT * FROM weights ORDER BY date", conn)
+    weights_df = load_sheet("weights")
     macros_df = pd.read_sql("""
         SELECT date,
                SUM(calories) calories,
