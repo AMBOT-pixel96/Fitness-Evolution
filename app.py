@@ -190,12 +190,8 @@ def generate_summary_image():
     except:
         f_big = f_med = ImageFont.load_default()
 
-    d.text(
-        (40, 30),
-        "FITNESS EVOLUTION — DAILY SUMMARY",
-        fill="#E6EDF3",
-        font=f_big
-    )
+    d.text((40, 30), "FITNESS EVOLUTION — DAILY SUMMARY",
+           fill="#E6EDF3", font=f_big)
 
     metrics = [
         f"Weight: {W} kg",
@@ -203,7 +199,7 @@ def generate_summary_image():
         f"Net Calories: {int(latest['Net'])}",
         f"Deficit %: {deficit_pct}",
         f"Keto: {'YES' if latest['Keto'] else 'NO'}",
-        f"Weekly Projection: {weekly_loss} kg",
+        f"Weekly Projection: {weekly_loss} kg"
     ]
 
     y = 120
@@ -211,10 +207,10 @@ def generate_summary_image():
         d.text((40, y), m, fill="#58A6FF", font=f_med)
         y += 42
 
-    # ✅ charts BELOW metrics
     CHART_Y = 420
+
     img.paste(plot_weight_img(df), (40, CHART_Y))
-img.paste(plot_macro_donut_img(latest), (520, CHART_Y + 80))
+    img.paste(plot_macro_donut_img(latest), (520, CHART_Y + 80))
 
     return img
 
