@@ -214,7 +214,7 @@ def generate_summary_image():
     # ✅ charts BELOW metrics
     CHART_Y = 420
     img.paste(plot_weight_img(df), (40, CHART_Y))
-    img.paste(plot_macro_donut_img(latest), (520, CHART_Y))
+img.paste(plot_macro_donut_img(latest), (520, CHART_Y + 80))
 
     return img
 
