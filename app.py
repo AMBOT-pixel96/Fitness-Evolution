@@ -371,5 +371,161 @@ elif card == "📊 Logs":
         px.line(df, x="date", y="Net", title="Net Calories", markers=True),
         use_container_width=True
     )
+# ---------- ETA TO GOAL ----------
+st.markdown("### 🎯 Goal Projection")
+
+goal_weight = st.number_input(
+    "Target Weight (kg)",
+    min_value=40.0,
+    max_value=300.0,
+    value=120.0,
+    step=0.5
+)
+
+avg_daily_deficit = abs(df.tail(7)["Net"].mean())
+
+if avg_daily_deficit > 0 and W:
+    daily_loss = avg_daily_deficit / 7700
+    remaining_kg = max(W - goal_weight, 0)
+    eta_days = int(remaining_kg / daily_loss) if daily_loss > 0 else None
+    eta_date = pd.Timestamp.today() + pd.Timedelta(days=eta_days)
+
+    st.metric("🕒 ETA to Goal", f"{eta_days} days")
+    st.caption(f"Estimated goal date: **{eta_date.date()}**")
+else:
+    st.info("Not enough data to calculate ETA.")
+
+# ---------- MAINTENANCE vs NET ----------
+st.markdown("### 🔥 Maintenance vs Net Calories")
+
+if maintenance:
+    df["Maintenance"] = maintenance
+
+    fig = px.line(
+        df,
+        x="date",
+        y=["Maintenance", "Net"],
+        markers=True,
+        title="Maintenance vs Net Calories"
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+# ---------- KETO COMPLIANCE ----------
+st.markdown("### 🥑 Keto Compliance")
+
+df["Keto"] = (
+    (df["carbs"] < 25) &
+    (df["calories"] > 0) &
+    ((df["fats"] * 9 / df["calories"]) >= 0.6)
+)
+
+keto_df = df[["date", "carbs", "fats", "calories", "Keto"]].copy()
+keto_df["Status"] = keto_df["Keto"].map({True: "🟢 Keto", False: "🔴 Not Keto"})
+
+st.dataframe(keto_df[["date", "Status", "carbs", "fats"]], use_container_width=True)
+
+# ---------- MACROS DONUT ----------
+st.markdown("### 🍽️ Macro Split")
+
+macro_sum = df[["carbs", "fats", "calories"]].iloc[-1]
+
+macro_donut = px.pie(
+    values=[macro_sum["carbs"]*4, macro_sum["fats"]*9, macro_sum["calories"] - (macro_sum["carbs"]*4 + macro_sum["fats"]*9)],
+    names=["Carbs", "Fats", "Protein"],
+    hole=0.55
+)
+st.plotly_chart(macro_donut, use_container_width=True)
+
+
+# ---------- WORKOUT TYPE SPLIT ----------
+st.markdown("### 🏋️ Burn Split by Workout Type")
+
+wt = pd.read_sql("""
+    SELECT workout_type, SUM(calories) calories
+    FROM workouts
+    GROUP BY workout_type
+""", conn)
+
+if not wt.empty:
+    burn_donut = px.pie(
+        wt,
+        values="calories",
+        names="workout_type",
+        hole=0.5
+    )
+    st.plotly_chart(burn_donut, use_container_width=True)
+
+# ---------- NET CAL BAR + TREND ----------
+st.markdown("### 📉 Net Calories Trend")
+
+fig = px.bar(df, x="date", y="Net", title="Net Calories by Day")
+fig.add_scatter(
+    x=df["date"],
+    y=df["Net"].rolling(3).mean(),
+    mode="lines+markers",
+    name="3-Day Avg"
+)
+st.plotly_chart(fig, use_container_width=True)
+
+# ---------- SCORECARD EXPORT ----------
+st.markdown("### 📸 Export Scorecard")
+
+export_mode = st.radio(
+    "Export Mode",
+    ["Selected Date", "Overall Trend"],
+    horizontal=True
+)
+
+export_date = st.selectbox(
+    "Select Date",
+    df["date"].dt.date[::-1]
+) if export_mode == "Selected Date" else None
+
+if st.button("📸 Generate Image"):
+    img = Image.new("RGB", (1080, 1080), "#0E1117")
+    d = ImageDraw.Draw(img)
+
+    try:
+        f_big = ImageFont.truetype("DejaVuSans-Bold.ttf", 64)
+        f_mid = ImageFont.truetype("DejaVuSans-Bold.ttf", 44)
+        f_sm = ImageFont.truetype("DejaVuSans.ttf", 36)
+    except:
+        f_big = f_mid = f_sm = ImageFont.load_default()
+
+    d.text((60, 40), "FITNESS EVOLUTION", fill="#E6EDF3", font=f_big)
+    y = 150
+
+    if export_mode == "Selected Date":
+        r = df[df["date"].dt.date == export_date].iloc[0]
+        lines = [
+            f"Date: {export_date}",
+            f"Weight: {r['weight']} kg",
+            f"Net Calories: {int(r['Net'])}",
+            f"Maintenance: {maintenance}",
+            f"Deficit %: {round((maintenance - r['Net'])/maintenance*100,1)}%",
+            f"Keto: {'YES' if r['Keto'] else 'NO'}"
+        ]
+    else:
+        lines = [
+            f"Current Weight: {W} kg",
+            f"Maintenance: {maintenance} kcal",
+            f"Avg Daily Deficit: {int(avg_daily_deficit)} kcal",
+            f"Projected Weekly Loss: {round((avg_daily_deficit*7)/7700,2)} kg"
+        ]
+
+    for line in lines:
+        d.text((60, y), line, fill="#58A6FF", font=f_mid)
+        y += 70
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+
+    st.download_button(
+        "⬇️ Download Scorecard",
+        buf,
+        "fitness_scorecard.png",
+        mime="image/png"
+    )
 
     st.markdown("</div>", unsafe_allow_html=True)
