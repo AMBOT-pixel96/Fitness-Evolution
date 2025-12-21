@@ -28,5 +28,6 @@ jobs:
           AUTO_EMAIL: "1"
           STREAMLIT_SECRETS: ${{ secrets.STREAMLIT_SECRETS }}
         run: |
+          mkdir -p .streamlit
           echo "$STREAMLIT_SECRETS" > .streamlit/secrets.toml
-          python app.py
+          streamlit run app.py --server.headless true
