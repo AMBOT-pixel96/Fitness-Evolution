@@ -136,7 +136,15 @@ if card == "🏋️ Workout":
     file = st.file_uploader("Upload Workout Excel", type="xlsx")
     if file and st.button("🔥 Import Workouts"):
         df_up = normalize_dates(pd.read_excel(file))
-        df_up.to_sql("workouts", conn, if_exists="append", index=False)
+
+df_up = df_up[[
+    "date","workout_type","exercise","duration","sets","calories"
+]]
+
+df_up.to_sql("workouts", conn, if_exists="append", index=False)
+
+st.success("Workout history imported.")
+st.rerun()
         st.success("Workout history imported.")
 
     st.markdown("</div>", unsafe_allow_html=True)
@@ -176,8 +184,21 @@ elif card == "🥩 Macros":
     file = st.file_uploader("Upload Macros Excel", type="xlsx")
     if file and st.button("🔥 Import Macros"):
         df_up = normalize_dates(pd.read_excel(file))
-        df_up["calories"] = df_up["protein"]*4 + df_up["carbs"]*4 + df_up["fats"]*9
-        df_up.to_sql("macros", conn, if_exists="append", index=False)
+
+df_up = df_up[[
+    "date","meal","protein","carbs","fats"
+]]
+
+df_up["calories"] = (
+    df_up["protein"]*4 +
+    df_up["carbs"]*4 +
+    df_up["fats"]*9
+)
+
+df_up.to_sql("macros", conn, if_exists="append", index=False)
+
+st.success("Macro history imported.")
+st.rerun()
         st.success("Macro history imported.")
 
     st.markdown("</div>", unsafe_allow_html=True)
@@ -214,8 +235,16 @@ elif card == "💊 Supplements":
     file = st.file_uploader("Upload Supplements Excel", type="xlsx")
     if file and st.button("🔥 Import Supplements"):
         df_up = normalize_dates(pd.read_excel(file))
-        df_up.to_sql("supplements", conn, if_exists="append", index=False)
-        st.success("Supplement history imported.")
+        df_up = normalize_dates(pd.read_excel(file))
+
+df_up = df_up[[
+    "date","supplement","dosage","unit"
+]]
+
+df_up.to_sql("supplements", conn, if_exists="append", index=False)
+
+st.success("Supplement history imported.")
+st.rerun()
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -309,10 +338,27 @@ elif card == "📊 Logs":
     proj = round(W - (abs(df.tail(7)["Net"].mean())*7/7700),2) if not weights.empty else None
 
     c1,c2,c3,c4 = st.columns(4)
-    c1.metric("⚖️ Weight", f"{W} kg")
-    c2.metric("🔥 Maintenance", f"{maintenance} kcal" if maintenance else "-")
-    c3.metric("📉 Deficit %", f"{deficit_pct}%" if deficit_pct else "-")
-    c4.metric("🔮 7-Day Projection", f"{proj} kg" if proj else "-")
+    c1, c2, c3, c4 = st.columns(4)
+
+c1.metric(
+    "⚖️ Weight",
+    f"{W} kg" if not weights.empty else "-"
+)
+
+c2.metric(
+    "🔥 Maintenance",
+    f"{maintenance} kcal" if maintenance else "-"
+)
+
+c3.metric(
+    "📉 Deficit %",
+    f"{deficit_pct}%" if maintenance else "-"
+)
+
+c4.metric(
+    "🔮 7-Day Projection",
+    f"{proj} kg" if proj else "-"
+)
 
     st.caption(f"Keto: {'🟢 YES' if keto else '🔴 NO'} | Activity Multiplier: {activity}")
 
