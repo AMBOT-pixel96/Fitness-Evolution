@@ -209,8 +209,11 @@ def generate_summary_image():
 
     CHART_Y = 420
 
-    img.paste(plot_weight_img(df), (40, CHART_Y))
-    img.paste(plot_macro_donut_img(latest), (520, CHART_Y + 80))
+    WEIGHT_Y = 420
+PIE_Y    = WEIGHT_Y + 180  # push pie DOWN
+
+img.paste(plot_weight_img(df), (40, WEIGHT_Y))
+img.paste(plot_macro_donut_img(latest), (40, PIE_Y))
 
     return img
 
