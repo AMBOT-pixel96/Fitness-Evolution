@@ -371,9 +371,10 @@ if df.empty:
 df["date"] = pd.to_datetime(df["date"])
 df = df.sort_values("date")
 df["Net"] = df["calories"] - df["burned"]
-    # ---------- ACTIVITY ----------
-    avg_burn = df.tail(7)["burned"].mean()
-    activity = 1.2 if avg_burn < 200 else 1.35 if avg_burn < 400 else 1.5 if avg_burn < 600 else 1.65
+
+# ---------- ACTIVITY ----------
+avg_burn = df.tail(7)["burned"].mean()
+activity = 1.2 if avg_burn < 200 else 1.35 if avg_burn < 400 else 1.5 if avg_burn < 600 else 1.65
 
     profile_df = pd.read_sql(
         "SELECT * FROM user_profile WHERE username=?",
