@@ -205,9 +205,10 @@ def generate_summary_image():
     for m in metrics:
         d.text((40,y), m, fill="#58A6FF", font=f_med)
         y += 42
+CHART_Y = 420
 
-    img.paste(plot_weight_img(df), (40, 380))
-    img.paste(plot_macro_donut_img(latest), (520, 360))
+    img.paste(plot_weight_img(df), (40, CHART_Y))
+img.paste(plot_macro_donut_img(latest), (520, CHART_Y))
 
     return img
 
