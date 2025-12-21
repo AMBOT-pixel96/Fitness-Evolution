@@ -23,13 +23,13 @@ jobs:
         run: |
           pip install -r requirements.txt
 
-      - name: Run daily email
+      - name: Inject Streamlit secrets
         env:
-          AUTO_EMAIL: "1"
           STREAMLIT_SECRETS: ${{ secrets.STREAMLIT_SECRETS }}
         run: |
           mkdir -p .streamlit
           echo "$STREAMLIT_SECRETS" > .streamlit/secrets.toml
-          timeout 120 streamlit run app.py \
-            --server.headless true \
-            --server.runOnSave false
+
+      - name: Send daily email
+        run: |
+          python mailer.py
