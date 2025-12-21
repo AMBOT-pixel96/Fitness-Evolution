@@ -30,4 +30,6 @@ jobs:
         run: |
           mkdir -p .streamlit
           echo "$STREAMLIT_SECRETS" > .streamlit/secrets.toml
-          streamlit run app.py --server.headless true
+          timeout 120 streamlit run app.py \
+            --server.headless true \
+            --server.runOnSave false
