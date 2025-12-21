@@ -8,6 +8,10 @@ from google.oauth2.service_account import Credentials
 from PIL import Image, ImageDraw, ImageFont
 import matplotlib.pyplot as plt
 import io
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.image import MIMEImage
 
 # ================== PAGE CONFIG ==================
 st.set_page_config(
@@ -38,10 +42,8 @@ def load_sheet(tab):
     client = gspread.authorize(creds)
     sheet = client.open("Fitness_Evolution_Master").worksheet(tab)
     df = pd.DataFrame(sheet.get_all_records())
-
     if "date" in df.columns:
         df["date"] = pd.to_datetime(df["date"], dayfirst=True)
-
     return df
 
 # ================== LOAD DATA ==================
@@ -127,7 +129,7 @@ latest = df.iloc[-1]
 deficit_pct = round((maintenance - latest["Net"]) / maintenance * 100, 1)
 weekly_loss = round((abs(df.tail(7)["Net"].mean()) * 7) / 7700, 2)
 
-# ================== UI HEADER ==================
+# ================== UI ==================
 st.title("🔥 Fitness Evolution — Command Center")
 st.caption("Sheets → Intelligence → Action")
 
@@ -142,105 +144,130 @@ st.caption(
     f"Activity Multiplier: {activity}"
 )
 
-# ================== ON-APP DASHBOARD (RESTORED) ==================
-st.subheader("📊 Trends")
-
-st.plotly_chart(
-    px.line(df, x="date", y="weight", title="Weight Trend", markers=True),
-    use_container_width=True
-)
-
-st.plotly_chart(
-    px.bar(df, x="date", y=["calories","burned"], barmode="group",
-           title="Calories In vs Out"),
-    use_container_width=True
-)
-
-st.plotly_chart(
-    px.line(df, x="date", y="Net", title="Net Calories", markers=True),
-    use_container_width=True
-)
-
-df["Maintenance"] = maintenance
-st.plotly_chart(
-    px.line(df, x="date", y=["Maintenance","Net"],
-            title="Maintenance vs Net Calories"),
-    use_container_width=True
-)
-
-st.plotly_chart(
-    px.pie(
-        values=[latest["protein_cals"], latest["carb_cals"], latest["fat_cals"]],
-        names=["Protein","Carbs","Fats"],
-        hole=0.55,
-        title="Macro Split"
-    ),
-    use_container_width=True
-)
-
-burn_split = workouts_raw.groupby("workout_type", as_index=False)["calories"].sum()
-st.plotly_chart(
-    px.pie(burn_split, values="calories", names="workout_type",
-           hole=0.5, title="Burn Split"),
-    use_container_width=True
-)
+# ================== DASHBOARD CHARTS ==================
+st.plotly_chart(px.line(df, x="date", y="weight", title="Weight Trend", markers=True), True)
+st.plotly_chart(px.bar(df, x="date", y=["calories","burned"], barmode="group",
+                       title="Calories In vs Out"), True)
+st.plotly_chart(px.line(df, x="date", y="Net", title="Net Calories", markers=True), True)
 
 # ================== IMAGE HELPERS ==================
 def plot_weight_img(df):
-    fig, ax = plt.subplots(figsize=(6,3))
-    recent = df.tail(21)
-    ax.plot(recent["date"], recent["weight"], marker="o", linewidth=2)
-    ax.set_title("Weight Trend (21 Days)")
-    ax.grid(alpha=0.3)
+    fig, ax = plt.subplots(figsize=(4,2))
+    recent = df.tail(14)
+    ax.plot(recent["date"], recent["weight"], marker="o")
+    ax.set_title("Weight (14d)")
     ax.tick_params(axis="x", rotation=45)
+    ax.grid(alpha=0.3)
     buf = io.BytesIO()
     plt.tight_layout()
-    fig.savefig(buf, format="PNG", dpi=160)
+    fig.savefig(buf, format="PNG", dpi=150)
     plt.close(fig)
     buf.seek(0)
     return Image.open(buf)
 
-# ================== EXPORT SUMMARY ==================
-st.subheader("📸 Export Summary")
+def plot_macro_donut_img(row):
+    fig, ax = plt.subplots(figsize=(3,3))
+    ax.pie(
+        [row["protein_cals"], row["carb_cals"], row["fat_cals"]],
+        labels=["Protein","Carbs","Fats"],
+        autopct="%1.0f%%",
+        startangle=90
+    )
+    ax.set_title("Macros")
+    buf = io.BytesIO()
+    fig.savefig(buf, format="PNG", dpi=150)
+    plt.close(fig)
+    buf.seek(0)
+    return Image.open(buf)
 
-if st.button("Export Summary"):
-    img = Image.new("RGB", (1400,900), "#0E1117")
+# ================== EXPORT SUMMARY IMAGE ==================
+st.markdown("### 📸 Export Summary")
+
+if st.button("Generate Image"):
+    img = Image.new("RGB", (1400,1000), "#0E1117")
     d = ImageDraw.Draw(img)
 
     try:
-        f_big = ImageFont.truetype("DejaVuSans-Bold.ttf", 52)
-        f_med = ImageFont.truetype("DejaVuSans-Bold.ttf", 34)
+        f_big = ImageFont.truetype("DejaVuSans-Bold.ttf", 48)
+        f_med = ImageFont.truetype("DejaVuSans-Bold.ttf", 32)
     except:
         f_big = f_med = ImageFont.load_default()
 
-    # Header
     d.text((40,30), "FITNESS EVOLUTION — DAILY SUMMARY", fill="#E6EDF3", font=f_big)
 
-    # Metrics column
     metrics = [
         f"Weight: {W} kg",
         f"Maintenance: {maintenance} kcal",
         f"Net Calories: {int(latest['Net'])}",
-        f"Deficit: {deficit_pct}%",
+        f"Deficit %: {deficit_pct}",
         f"Keto: {'YES' if latest['Keto'] else 'NO'}",
         f"Weekly Projection: {weekly_loss} kg"
     ]
 
-    y = 130
+    y = 120
     for m in metrics:
         d.text((40,y), m, fill="#58A6FF", font=f_med)
-        y += 46
+        y += 42
 
-    # HERO chart
-    img.paste(plot_weight_img(df), (520, 150))
+    img.paste(plot_weight_img(df), (40, 380))
+    img.paste(plot_macro_donut_img(latest), (520, 360))
 
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
 
-    st.download_button(
-        "⬇️ Download Image",
-        buf,
-        "fitness_summary.png",
-        mime="image/png"
-    )
+    st.image(img, use_column_width=True)
+    st.download_button("⬇️ Download Image", buf, "fitness_summary.png", "image/png")
+
+# ================== EMAIL ENGINE ==================
+def build_email_body():
+    keto = "YES 🟢" if latest["Keto"] else "NO 🔴"
+    return f"""
+    <html>
+    <body style="background:#0E1117;color:#E6EDF3;font-family:Arial;">
+        <h2>🔥 Fitness Evolution — Daily Report</h2>
+        <ul>
+            <li>Weight: {W} kg</li>
+            <li>Maintenance: {maintenance} kcal</li>
+            <li>Net Calories: {int(latest['Net'])}</li>
+            <li>Deficit %: {deficit_pct}</li>
+            <li>Keto: {keto}</li>
+            <li>Weekly Projection: {weekly_loss} kg</li>
+        </ul>
+        <img src="cid:scorecard" style="width:100%;max-width:800px;border-radius:12px;">
+    </body>
+    </html>
+    """
+
+def send_email(image_bytes):
+    msg = MIMEMultipart("related")
+    msg["From"] = st.secrets["email"]["sender_email"]
+    msg["To"] = st.secrets["email"]["recipient_email"]
+    msg["Subject"] = "🔥 Fitness Evolution — Daily Summary"
+
+    alt = MIMEMultipart("alternative")
+    msg.attach(alt)
+    alt.attach(MIMEText(build_email_body(), "html"))
+
+    img = MIMEImage(image_bytes)
+    img.add_header("Content-ID", "<scorecard>")
+    msg.attach(img)
+
+    with smtplib.SMTP(
+        st.secrets["email"]["smtp_server"],
+        st.secrets["email"]["smtp_port"]
+    ) as server:
+        server.starttls()
+        server.login(
+            st.secrets["email"]["sender_email"],
+            st.secrets["email"]["app_password"]
+        )
+        server.send_message(msg)
+
+# ================== TEST EMAIL ==================
+if st.button("📧 Send Test Email"):
+    img_buf = io.BytesIO()
+    img.save(img_buf, format="PNG")
+    img_buf.seek(0)
+    send_email(img_buf.read())
+    st.success("Email sent 📬 Check inbox")
