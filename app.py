@@ -353,7 +353,7 @@ df = (
     .merge(weights_df, on="date", how="left")
     .fillna(0)
 )
-    if df.empty:
+if df.empty:
         st.info("No data yet.")
         st.stop()
 
