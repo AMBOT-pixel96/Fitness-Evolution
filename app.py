@@ -5,14 +5,15 @@ import plotly.express as px
 from datetime import datetime
 import gspread
 from google.oauth2.service_account import Credentials
-from PIL import Image, ImageDraw, ImageFont
-import matplotlib.pyplot as plt
 import io
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
+import os
+
 from render.render import render_summary
+
 # ================== PAGE CONFIG ==================
 st.set_page_config(
     page_title="Fitness Evolution",
@@ -42,8 +43,10 @@ def load_sheet(tab):
     client = gspread.authorize(creds)
     sheet = client.open("Fitness_Evolution_Master").worksheet(tab)
     df = pd.DataFrame(sheet.get_all_records())
+
     if "date" in df.columns:
         df["date"] = pd.to_datetime(df["date"], dayfirst=True)
+
     return df
 
 # ================== LOAD DATA ==================
@@ -53,6 +56,9 @@ workouts_raw = load_sheet("workouts")
 profile_df   = load_sheet("profile")
 
 # ================== PREP MACROS ==================
+for col in ["protein", "carbs", "fats"]:
+    macros_raw[col] = pd.to_numeric(macros_raw[col], errors="coerce").fillna(0)
+
 macros_raw["calories"] = (
     macros_raw["protein"] * 4 +
     macros_raw["carbs"] * 4 +
@@ -71,6 +77,8 @@ macros_df = (
 )
 
 # ================== PREP WORKOUTS ==================
+workouts_raw["calories"] = pd.to_numeric(workouts_raw["calories"], errors="coerce").fillna(0)
+
 workouts_df = (
     workouts_raw
     .groupby("date", as_index=False)
@@ -95,9 +103,9 @@ df["Net"] = df["calories"] - df["burned"]
 
 # ================== PROFILE ==================
 prof   = profile_df.iloc[0]
-W      = df["weight"].iloc[-1]
-H      = prof["height_cm"]
-A      = prof["age"]
+W      = float(df["weight"].iloc[-1])
+H      = float(prof["height_cm"])
+A      = int(prof["age"])
 gender = prof["gender"]
 
 # ================== ACTIVITY ==================
@@ -126,6 +134,7 @@ df["Keto"] = (
 
 # ================== METRICS ==================
 latest = df.iloc[-1]
+
 deficit_pct = round((maintenance - latest["Net"]) / maintenance * 100, 1)
 weekly_loss = round((abs(df.tail(7)["Net"].mean()) * 7) / 7700, 2)
 
@@ -145,82 +154,37 @@ st.caption(
 )
 
 # ================== DASHBOARD CHARTS ==================
-st.plotly_chart(px.line(df, x="date", y="weight", title="Weight Trend", markers=True), True)
-st.plotly_chart(px.bar(df, x="date", y=["calories","burned"], barmode="group",
-                       title="Calories In vs Out"), True)
-st.plotly_chart(px.line(df, x="date", y="Net", title="Net Calories", markers=True), True)
+st.plotly_chart(
+    px.line(df, x="date", y="weight", title="Weight Trend", markers=True),
+    use_container_width=True
+)
 
-# ================== IMAGE HELPERS ==================
-def plot_weight_img(df):
-    fig, ax = plt.subplots(figsize=(4,2))
-    recent = df.tail(14)
-    ax.plot(recent["date"], recent["weight"], marker="o")
-    ax.set_title("Weight (14d)")
-    ax.tick_params(axis="x", rotation=45)
-    ax.grid(alpha=0.3)
-    buf = io.BytesIO()
-    plt.tight_layout()
-    fig.savefig(buf, format="PNG", dpi=150)
-    plt.close(fig)
-    buf.seek(0)
-    return Image.open(buf)
+st.plotly_chart(
+    px.bar(df, x="date", y=["calories","burned"], barmode="group",
+           title="Calories In vs Out"),
+    use_container_width=True
+)
 
-def plot_macro_donut_img(row):
-    fig, ax = plt.subplots(figsize=(3,3))
-    ax.pie(
-        [row["protein_cals"], row["carb_cals"], row["fat_cals"]],
-        labels=["Protein","Carbs","Fats"],
-        autopct="%1.0f%%",
-        startangle=90
-    )
-    ax.set_title("Macros")
-    buf = io.BytesIO()
-    fig.savefig(buf, format="PNG", dpi=150)
-    plt.close(fig)
-    buf.seek(0)
-    return Image.open(buf)
+st.plotly_chart(
+    px.line(df, x="date", y="Net", title="Net Calories", markers=True),
+    use_container_width=True
+)
 
-def generate_summary_image():
-    img = Image.new("RGB", (1400, 1200), "#0E1117")
-    d = ImageDraw.Draw(img)
+# ================== IMAGE RENDER (EXTERNAL ENGINE) ==================
+metrics = {
+    "weight": W,
+    "maintenance": maintenance,
+    "net": int(latest["Net"]),
+    "deficit": deficit_pct,
+    "keto": bool(latest["Keto"])
+}
 
-    try:
-        f_big = ImageFont.truetype("DejaVuSans-Bold.ttf", 48)
-        f_med = ImageFont.truetype("DejaVuSans-Bold.ttf", 32)
-    except:
-        f_big = f_med = ImageFont.load_default()
+img = render_summary(df, metrics)
 
-    # ---------- HEADER ----------
-    d.text(
-        (40, 30),
-        "FITNESS EVOLUTION — DAILY SUMMARY",
-        fill="#E6EDF3",
-        font=f_big
-    )
+buf = io.BytesIO()
+img.save(buf, format="PNG")
+buf.seek(0)
 
-    # ---------- METRICS ----------
-    metrics = [
-        f"Weight: {W} kg",
-        f"Maintenance: {maintenance} kcal",
-        f"Net Calories: {int(latest['Net'])}",
-        f"Deficit %: {deficit_pct}",
-        f"Keto: {'YES' if latest['Keto'] else 'NO'}",
-        f"Weekly Projection: {weekly_loss} kg"
-    ]
-
-    y = 120
-    for m in metrics:
-        d.text((40, y), m, fill="#58A6FF", font=f_med)
-        y += 42
-
-    # ---------- CHART PLACEMENT (NO OVERLAP) ----------
-    WEIGHT_Y = 420
-    PIE_Y = WEIGHT_Y + 400
-
-    img.paste(plot_weight_img(df), (40, WEIGHT_Y))
-    img.paste(plot_macro_donut_img(latest), (40, PIE_Y))
-
-    return img
 # ================== EMAIL ENGINE ==================
 def build_email_body():
     keto = "YES 🟢" if latest["Keto"] else "NO 🔴"
@@ -236,7 +200,7 @@ def build_email_body():
             <li>Keto: {keto}</li>
             <li>Weekly Projection: {weekly_loss} kg</li>
         </ul>
-        <img src="cid:scorecard" style="width:100%;max-width:800px;border-radius:12px;">
+        <img src="cid:scorecard" style="width:100%;max-width:800px;border-radius:14px;">
     </body>
     </html>
     """
@@ -251,9 +215,9 @@ def send_email(image_bytes):
     msg.attach(alt)
     alt.attach(MIMEText(build_email_body(), "html"))
 
-    img = MIMEImage(image_bytes)
-    img.add_header("Content-ID", "<scorecard>")
-    msg.attach(img)
+    img_part = MIMEImage(image_bytes)
+    img_part.add_header("Content-ID", "<scorecard>")
+    msg.attach(img_part)
 
     with smtplib.SMTP(
         st.secrets["email"]["smtp_server"],
@@ -269,11 +233,6 @@ def send_email(image_bytes):
 # ================== EXPORT SUMMARY ==================
 st.markdown("### 📸 Export Summary")
 
-img = generate_summary_image()
-buf = io.BytesIO()
-img.save(buf, format="PNG")
-buf.seek(0)
-
 st.image(img, use_column_width=True)
 
 st.download_button(
@@ -286,3 +245,7 @@ st.download_button(
 if st.button("📧 Send Test Email"):
     send_email(buf.getvalue())
     st.success("Email sent 📬 Check inbox")
+
+# ================== AUTO EMAIL (GITHUB ACTIONS) ==================
+if os.getenv("AUTO_EMAIL") == "1":
+    send_email(buf.getvalue())
