@@ -12,7 +12,7 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
-
+from render.render import render_summary
 # ================== PAGE CONFIG ==================
 st.set_page_config(
     page_title="Fitness Evolution",
