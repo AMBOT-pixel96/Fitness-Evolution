@@ -28,7 +28,7 @@ def load_sheet(tab):
         df["date"] = pd.to_datetime(df["date"], dayfirst=True)
     return df
 
-# Data Fetch
+# Fetch Data
 weights_df = load_sheet("weights")
 macros_raw = load_sheet("macros")
 workouts_raw = load_sheet("workouts")
@@ -40,14 +40,18 @@ for col in ["protein", "carbs", "fats"]:
 macros_df = macros_raw.groupby("date", as_index=False).agg({"protein": "sum", "carbs": "sum", "fats": "sum"})
 macros_df["calories"] = (macros_df["protein"] * 4 + macros_df["carbs"] * 4 + macros_df["fats"] * 9)
 
-# Process Workouts (Keep split for the render)
+# Process Workouts (FIXED: Today or Last Entry Fallback)
 workouts_raw["calories"] = pd.to_numeric(workouts_raw["calories"], errors="coerce").fillna(0)
-today_str = datetime.now().strftime('%Y-%m-%d')
-workouts_today = workouts_raw[workouts_raw['date'].astype(str) == today_str].rename(columns={"calories": "burned"})
+today_date = pd.Timestamp.now().normalize()
+workouts_today = workouts_raw[workouts_raw['date'] == today_date].rename(columns={"calories": "burned"})
+
+if workouts_today.empty:
+    last_date = workouts_raw['date'].max()
+    workouts_today = workouts_raw[workouts_raw['date'] == last_date].rename(columns={"calories": "burned"})
 
 workouts_agg = workouts_raw.groupby("date", as_index=False).agg({"calories": "sum"}).rename(columns={"calories": "burned"})
 
-# Merge
+# Master DF
 df = macros_df.merge(workouts_agg, on="date", how="outer").merge(weights_df, on="date", how="left").fillna(0)
 df = df.sort_values("date")
 df["Net"] = df["calories"] - df["burned"]
@@ -63,19 +67,19 @@ weekly_loss = round((abs(df.tail(7)["Net"].mean()) * 7) / 7700, 2)
 # ================== RENDER HUD ==================
 st.title("⚡ FITNESS EVOLUTION MACHINE")
 
-render_metrics = {
+metrics = {
     "weight": W, "maintenance": maintenance, "net": int(latest["Net"]),
     "deficit": deficit_pct, "keto": (latest["carbs"] <= 25), "weekly_loss": weekly_loss
 }
 
-img = render_summary(df, render_metrics, workouts_today)
+img = render_summary(df, metrics, workouts_today)
 buf = io.BytesIO()
 img.save(buf, format="PNG")
 img_bytes = buf.getvalue()
 
 st.image(img, use_container_width=True)
 
-# ================== EMAIL DISPATCH ==================
+# ================== EMAIL SYSTEM ==================
 def send_email(image_data):
     msg = MIMEMultipart("related")
     msg["From"] = st.secrets["email"]["sender_email"]
@@ -84,9 +88,9 @@ def send_email(image_data):
 
     body = f"""
     <body style="background-color: #050A0E; color: #00F2FF; font-family: monospace; padding: 20px;">
-        <h2 style="border-bottom: 2px solid #00F2FF;">SYSTEM STATUS: EVOLVING</h2>
+        <h2 style="border-bottom: 2px solid #00F2FF;">SYSTEM STATUS: NOMINAL</h2>
         <img src="cid:hud" style="width:100%; max-width:800px; border: 1px solid #1E3D52;">
-        <p style="color: #A0B0B9; margin-top: 20px;">Protocol: Billionaire Genius. Target: 6% Bodyfat.</p>
+        <p style="color: #A0B0B9; margin-top: 20px;">Stay eccentric. Stay genius. Protocol continues.</p>
     </body>
     """
     msg.attach(MIMEText(body, "html"))
@@ -101,7 +105,7 @@ def send_email(image_data):
 
 if st.button("🚀 SYNC TO MOBILE"):
     send_email(img_bytes)
-    st.success("Daily Report Synced.")
+    st.success("Report Synced.")
 
 if os.getenv("AUTO_EMAIL") == "1":
     send_email(img_bytes)
