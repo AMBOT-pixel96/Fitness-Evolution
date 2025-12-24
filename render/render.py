@@ -1,106 +1,102 @@
 # render/render.py
-import matplotlib.pyplot as plt
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 import io
 import numpy as np
+import matplotlib.pyplot as plt
 
-# --- THEME DESIGN ---
-BG_COLOR = "#0E1117"     # Deep Space Dark
-CARD_COLOR = "#161B22"   # Slate Card
-TEXT_COLOR = "#E6EDF3"   # Off-White
-ACCENT_BLUE = "#58A6FF"  # High-Tech Blue
-ACCENT_GREEN = "#238636" # Success Green
-ACCENT_RED = "#DA3633"   # Alert Red
+# --- STARK HUD THEME ---
+CYAN = "#00F2FF"
+DEEP_BLUE = "#001A2E"
+BG_DARK = "#050A0E"
+GLOW_CYAN = "#00E5FF"
+NEON_GREEN = "#39FF14"
+NEON_RED = "#FF3131"
+TEXT_GREY = "#A0B0B9"
 
-def create_styled_charts(df, metrics):
-    """Generates a composite of visualizations using Matplotlib"""
-    plt.style.use('dark_background')
-    fig = plt.figure(figsize=(10, 10), facecolor=BG_COLOR)
-    
-    # 1. Weight Trend (Top)
-    ax1 = plt.subplot2grid((2, 2), (0, 0), colspan=2)
-    recent = df.tail(14)
-    ax1.plot(recent["date"], recent["weight"], color=ACCENT_BLUE, marker='o', linewidth=3, markersize=8)
-    ax1.fill_between(recent["date"], recent["weight"], min(recent["weight"])-0.5, color=ACCENT_BLUE, alpha=0.15)
-    ax1.set_title("BIOMETRIC TREND: WEIGHT (14D)", fontsize=14, pad=15, color=ACCENT_BLUE, fontweight='bold')
-    ax1.grid(color='#30363D', linestyle='--', alpha=0.3)
-    for spine in ax1.spines.values(): spine.set_visible(False)
-
-    # 2. Macro Distribution (Bottom Left)
-    ax2 = plt.subplot2grid((2, 2), (1, 0))
-    latest = df.iloc[-1]
-    macro_vals = [latest['protein'], latest['carbs'], latest['fats']]
-    macro_labels = ['PRO', 'CHO', 'FAT']
-    colors = [ACCENT_BLUE, "#79C0FF", ACCENT_GREEN]
-    
-    wedges, texts, autotexts = ax2.pie(macro_vals, labels=macro_labels, autopct='%1.0f%%', 
-                                      colors=colors, startangle=140, pctdistance=0.8)
-    plt.setp(autotexts, size=10, weight="bold")
-    # Draw donut hole
-    centre_circle = plt.Circle((0,0), 0.70, fc=BG_COLOR)
-    ax2.add_artist(centre_circle)
-    ax2.set_title("FUEL COMPOSITION", fontsize=12, fontweight='bold')
-
-    # 3. Energy Balance (Bottom Right)
-    ax3 = plt.subplot2grid((2, 2), (1, 1))
-    # Net vs Maintenance
-    categories = ['Net', 'Maint']
-    vals = [metrics['net'], metrics['maintenance']]
-    bars = ax3.bar(categories, vals, color=[ACCENT_RED if metrics['net'] > 0 else ACCENT_GREEN, '#30363D'])
-    ax3.set_title("ENERGY DIFFERENTIAL", fontsize=12, fontweight='bold')
-    for spine in ax3.spines.values(): spine.set_visible(False)
-    ax3.yaxis.set_visible(False)
-
-    plt.tight_layout(pad=4.0)
-    
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png', facecolor=BG_COLOR, dpi=120)
-    plt.close(fig)
-    buf.seek(0)
-    return Image.open(buf)
+def draw_glass_card(draw, x, y, w, h, title=""):
+    """Draws a futuristic semi-transparent glass container"""
+    # Card Body
+    draw.rectangle([x, y, x+w, y+h], fill="#0A1926", outline="#1E3D52", width=2)
+    # Glossy Top Edge
+    draw.line([x, y, x+w, y], fill="#3E7DA3", width=3)
+    # Title
+    try:
+        f_small = ImageFont.truetype("DejaVuSans-Bold.ttf", 24)
+    except:
+        f_small = ImageFont.load_default()
+    draw.text((x+15, y-35), title.upper(), fill=CYAN, font=f_small)
 
 def render_summary(df, metrics):
-    """Main rendering engine for the Daily Scorecard"""
-    width, height = 1080, 1920
-    img = Image.new("RGB", (width, height), BG_COLOR)
+    width, height = 1080, 1080  # Square HUD for maximum impact
+    img = Image.new("RGB", (width, height), BG_DARK)
     draw = ImageDraw.Draw(img)
     
-    # Font Handling (Fallback for different environments)
     try:
-        f_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 70)
-        f_val = ImageFont.truetype("DejaVuSans-Bold.ttf", 90)
-        f_lab = ImageFont.truetype("DejaVuSans.ttf", 35)
+        f_huge = ImageFont.truetype("DejaVuSans-Bold.ttf", 100)
+        f_mid = ImageFont.truetype("DejaVuSans-Bold.ttf", 45)
+        f_reg = ImageFont.truetype("DejaVuSans.ttf", 30)
     except:
-        f_title = f_val = f_lab = ImageFont.load_default()
+        f_huge = f_mid = f_reg = ImageFont.load_default()
 
-    # --- HEADER ---
-    draw.text((60, 80), "SYSTEM: FITNESS EVOLUTION", fill=TEXT_COLOR, font=f_title)
-    draw.line((60, 170, 1020, 170), fill=ACCENT_BLUE, width=4)
+    # --- TOP BAR: ASCENSION PROTOCOL ---
+    draw.rectangle([0, 0, width, 120], fill="#001F33")
+    draw.text((40, 35), "ASCENSION PROTOCOL", fill=CYAN, font=f_mid)
+    draw.text((width-380, 35), f"DAY {len(df)} OF 90", fill=CYAN, font=f_mid)
+    draw.line([0, 120, width, 120], fill=CYAN, width=4)
 
-    # --- DATA GRID (The HUD) ---
-    def draw_stat(x, y, label, value, color):
-        draw.text((x, y), label, fill="#8B949E", font=f_lab)
-        draw.text((x, y+55), str(value), fill=color, font=f_val)
+    # --- MAIN BIOMETRIC (CENTER TOP) ---
+    draw.text((40, 160), f"{metrics['weight']}", fill="#FFFFFF", font=f_huge)
+    draw.text((360, 210), "KG", fill=CYAN, font=f_mid)
+    draw.text((40, 270), f"PROJECTION: {metrics.get('weekly_loss', 0)} KG/WEEK", fill=NEON_GREEN, font=f_reg)
 
-    # Row 1
-    draw_stat(60, 240, "CURRENT MASS", f"{metrics['weight']} KG", TEXT_COLOR)
-    draw_stat(580, 240, "METABOLIC CAP", f"{metrics['maintenance']} KCAL", ACCENT_BLUE)
+    # --- THREE COLUMN HUD ---
+    col_w = 310
+    start_y = 380
+    card_h = 350
     
-    # Row 2
-    draw_stat(60, 460, "CALORIE DEFICIT", f"{metrics['deficit']}%", ACCENT_GREEN)
-    keto_status = "STABLE" if metrics['keto'] else "OUT"
-    keto_color = ACCENT_GREEN if metrics['keto'] else ACCENT_RED
-    draw_stat(580, 460, "KETO PROTOCOL", keto_status, keto_color)
+    # 1. THERMODYNAMICS (Calories)
+    draw_glass_card(draw, 30, start_y, col_w, card_h, "Thermodynamics")
+    draw.text((50, start_y+30), f"MAINTENANCE: {metrics['maintenance']}", fill=TEXT_GREY, font=f_reg)
+    # Deficit Bar
+    bar_h = 200
+    draw.rectangle([60, start_y+80, 90, start_y+80+bar_h], fill="#1E3D52")
+    fill_h = int(bar_h * (metrics['deficit']/100))
+    draw.rectangle([60, start_y+80+(bar_h-fill_h), 90, start_y+80+bar_h], fill=NEON_RED)
+    draw.text((110, start_y+150), f"NET: {metrics['net']}", fill="#FFFFFF", font=f_mid)
 
-    # --- CHART INJECTION ---
-    charts_img = create_styled_charts(df, metrics)
-    # Resize slightly to fit the width well
-    charts_img = charts_img.resize((960, 960))
-    img.paste(charts_img, (60, 700))
+    # 2. BIO-CHEMICAL STACK (Keto/Status)
+    draw_glass_card(draw, 385, start_y, col_w, card_h, "Bio-Chemical Stack")
+    keto_col = NEON_GREEN if metrics['keto'] else NEON_RED
+    draw.text((405, start_y+50), "KETOSIS:", fill=TEXT_GREY, font=f_reg)
+    draw.text((405, start_y+90), "CONFIRMED" if metrics['keto'] else "OFFLINE", fill=keto_col, font=f_mid)
+    draw.text((405, start_y+180), "• MCT OIL: ACTIVE", fill=CYAN, font=f_reg)
+    draw.text((405, start_y+230), "• BERBERINE: ON", fill=CYAN, font=f_reg)
 
-    # --- FOOTER ---
-    draw.rectangle([0, height-120, width, height], fill=ACCENT_BLUE)
-    footer_text = "GENIUS PLAYBOY EDITION | PERFORMANCE LOG"
-    draw.text((width//2 - 350, height-85), footer_text, fill=BG_COLOR, font=f_lab)
+    # 3. PHYSICAL OUTPUT
+    draw_glass_card(draw, 740, start_y, col_w, card_h, "Physical Output")
+    draw.text((760, start_y+50), "WORKOUT: STABLE", fill=NEON_GREEN, font=f_reg)
+    draw.ellipse([840, start_y+150, 940, start_y+250], outline=CYAN, width=5) # Mini Gauge
+    draw.text((865, start_y+185), "100%", fill="#FFFFFF", font=f_reg)
+
+    # --- BOTTOM CHART: THE BILLIONAIRE GOAL ---
+    # We use Matplotlib to generate the line but style it to match the HUD
+    plt.style.use('dark_background')
+    fig, ax = plt.subplots(figsize=(10, 3), facecolor=BG_DARK)
+    recent = df.tail(14)
+    ax.plot(recent["date"], recent["weight"], color=CYAN, linewidth=4)
+    ax.fill_between(recent["date"], recent["weight"], min(recent['weight'])-1, color=CYAN, alpha=0.2)
+    ax.set_title("ACTUAL WEIGHT (14D) - BILLIONAIRE GOAL", color=CYAN, fontweight='bold')
+    ax.axis('off')
+    
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', facecolor=BG_DARK)
+    plt.close(fig)
+    buf.seek(0)
+    chart_img = Image.open(buf).resize((1000, 250))
+    img.paste(chart_img, (40, 750))
+
+    # --- FOOTER MOTIVATION ---
+    footer_text = "PHYSIQUE: ASCENDING. FAT CELLS: SCREAMING."
+    draw.text((width//2 - 350, height-60), footer_text, fill=CYAN, font=f_reg)
 
     return img
