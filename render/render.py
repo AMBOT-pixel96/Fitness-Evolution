@@ -36,11 +36,11 @@ def render_summary(df, metrics, workouts_today):
     except:
         f_huge = f_mid = f_reg = f_day = f_stats = ImageFont.load_default()
 
-    # --- HEADER: FIXED OVERLAP ---
+    # --- HEADER: RESOLVED OVERLAP ---
     draw.rectangle([0, 0, width, 120], fill="#001F33")
     draw.text((40, 35), "FITNESS EVOLUTION MACHINE", fill=CYAN, font=f_mid)
-    # Day counter shifted and isolated to prevent overlap
-    draw.text((width-240, 40), f"{len(df)} OF 60", fill=CYAN, font=f_day) 
+    # Day counter shifted far right to prevent title collision
+    draw.text((width-220, 42), f"{len(df)} OF 60", fill=CYAN, font=f_day) 
     draw.line([0, 120, width, 120], fill=CYAN, width=4)
 
     # --- PRIMARY BIO-METRICS ---
@@ -69,23 +69,38 @@ def render_summary(df, metrics, workouts_today):
     for i, s in enumerate(supps):
         draw.text((400, start_y+80+(i*40)), f"• {s}", fill=CYAN, font=f_reg)
 
-    # 3. PHYSICAL OUTPUT: THE FIX
+    # 3. PHYSICAL OUTPUT: HORIZONTAL BAR CHART
     draw_glass_card(draw, 740, start_y, col_w, card_h, "Physical Output")
     if not workouts_today.empty and workouts_today['burned'].sum() > 0:
-        exercise_burn = workouts_today.groupby('exercise')['burned'].sum()
+        exercise_data = workouts_today.groupby('exercise')['burned'].sum().sort_values()
+        
         plt.style.use('dark_background')
-        fig, ax = plt.subplots(figsize=(3, 3), facecolor='#0A1926')
-        ax.pie(exercise_burn, colors=[CYAN, "#79C0FF", "#3E7DA3", "#58A6FF"], startangle=140)
-        centre_circle = plt.Circle((0,0), 0.70, fc='#0A1926')
-        ax.add_artist(centre_circle)
+        fig, ax = plt.subplots(figsize=(3.5, 3.5), facecolor='#0A1926')
+        
+        # Horizontal Bar Chart Logic
+        bars = ax.barh(exercise_data.index, exercise_data.values, color=CYAN, height=0.6)
+        ax.set_facecolor('#0A1926')
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['left'].set_color('#1E3D52')
+        ax.spines['bottom'].set_color('#1E3D52')
+        ax.tick_params(axis='both', which='major', labelsize=10, colors=TEXT_GREY)
+        
+        # Add labels on bars
+        for bar in bars:
+            width_val = bar.get_width()
+            ax.text(width_val, bar.get_y() + bar.get_height()/2, f' {int(width_val)}', 
+                    va='center', ha='left', color=NEON_GREEN, fontsize=9, fontweight='bold')
+
+        plt.tight_layout()
         buf = io.BytesIO()
         fig.savefig(buf, format='png', transparent=True, dpi=100)
         plt.close(fig)
         buf.seek(0)
-        workout_pie = Image.open(buf).resize((240, 240))
-        img.paste(workout_pie, (775, start_y+120), workout_pie)
-        draw.text((760, start_y+40), f"BURN: {int(exercise_burn.sum())}", fill=NEON_GREEN, font=f_reg)
-        draw.text((760, start_y+80), f"{workouts_today['exercise'].iloc[0].upper()}", fill=TEXT_GREY, font=f_reg)
+        workout_bars = Image.open(buf).resize((280, 280))
+        img.paste(workout_bars, (755, start_y+100), workout_bars)
+        
+        draw.text((760, start_y+40), f"TOTAL BURN: {int(exercise_data.sum())}", fill=NEON_GREEN, font=f_reg)
     else:
         draw.text((770, start_y+180), "SYSTEM IDLE", fill=TEXT_GREY, font=f_reg)
 
@@ -95,7 +110,6 @@ def render_summary(df, metrics, workouts_today):
     ax.plot(recent["date"], recent["weight"], color=CYAN, linewidth=3, marker='o', markersize=8, mfc=BG_DARK, mew=2)
     ax.fill_between(recent["date"], recent["weight"], recent["weight"].min()-1, color=CYAN, alpha=0.1)
     
-    # Latest Data Label
     latest_date, latest_val = recent["date"].iloc[-1], recent["weight"].iloc[-1]
     ax.annotate(f"{latest_val}", (latest_date, latest_val), textcoords="offset points", xytext=(0,12), ha='center', color="#FFFFFF", weight='bold', fontsize=12)
     
