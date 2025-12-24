@@ -14,15 +14,7 @@ import os
 from render.render import render_summary
 
 # ================== PAGE CONFIG ==================
-st.set_page_config(page_title="Evolution HUD", page_icon="⚡", layout="wide")
-
-st.markdown("""
-<style>
-    [data-testid="stAppViewContainer"] { background: radial-gradient(circle, #001A2E 0%, #050A0E 100%); }
-    .stMetric { border: 1px solid #1E3D52; background: #0A1926; padding: 20px; border-radius: 5px; }
-    h1 { color: #00F2FF !important; font-family: 'Courier New', monospace; letter-spacing: 2px; }
-</style>
-""", unsafe_allow_html=True)
+st.set_page_config(page_title="Evolution Machine", page_icon="⚡", layout="wide")
 
 # ================== DATA ENGINE ==================
 @st.cache_data(ttl=300)
@@ -36,66 +28,66 @@ def load_sheet(tab):
         df["date"] = pd.to_datetime(df["date"], dayfirst=True)
     return df
 
-# Load and Prep
+# Data Fetch
 weights_df = load_sheet("weights")
 macros_raw = load_sheet("macros")
 workouts_raw = load_sheet("workouts")
 profile_df = load_sheet("profile")
 
+# Process Macros
 for col in ["protein", "carbs", "fats"]:
     macros_raw[col] = pd.to_numeric(macros_raw[col], errors="coerce").fillna(0)
 macros_df = macros_raw.groupby("date", as_index=False).agg({"protein": "sum", "carbs": "sum", "fats": "sum"})
 macros_df["calories"] = (macros_df["protein"] * 4 + macros_df["carbs"] * 4 + macros_df["fats"] * 9)
 
-workouts_df = workouts_raw.groupby("date", as_index=False).agg({"calories": "sum"}).rename(columns={"calories": "burned"})
+# Process Workouts (Keep split for the render)
+workouts_raw["calories"] = pd.to_numeric(workouts_raw["calories"], errors="coerce").fillna(0)
+today_str = datetime.now().strftime('%Y-%m-%d')
+workouts_today = workouts_raw[workouts_raw['date'].astype(str) == today_str].rename(columns={"calories": "burned"})
 
-df = macros_df.merge(workouts_df, on="date", how="outer").merge(weights_df, on="date", how="left").fillna(0)
+workouts_agg = workouts_raw.groupby("date", as_index=False).agg({"calories": "sum"}).rename(columns={"calories": "burned"})
+
+# Merge
+df = macros_df.merge(workouts_agg, on="date", how="outer").merge(weights_df, on="date", how="left").fillna(0)
 df = df.sort_values("date")
 df["Net"] = df["calories"] - df["burned"]
 
-# ================== LOGIC ==================
+# ================== PHYSIOLOGY ==================
 prof = profile_df.iloc[0]
 W = float(df["weight"].replace(0, np.nan).ffill().iloc[-1])
-maintenance = int((10*W + 6.25*float(prof["height_cm"]) - 5*int(prof["age"]) + 5) * 1.35) # Hardcoded activity for demo
+maintenance = int((10*W + 6.25*float(prof["height_cm"]) - 5*int(prof["age"]) + 5) * 1.35)
 latest = df.iloc[-1]
 deficit_pct = round((maintenance - latest["Net"]) / maintenance * 100, 1)
 weekly_loss = round((abs(df.tail(7)["Net"].mean()) * 7) / 7700, 2)
 
 # ================== RENDER HUD ==================
-st.title("⚡ SYSTEM: ASCENSION PROTOCOL")
+st.title("⚡ FITNESS EVOLUTION MACHINE")
 
 render_metrics = {
-    "weight": W,
-    "maintenance": maintenance,
-    "net": int(latest["Net"]),
-    "deficit": deficit_pct,
-    "keto": (latest["carbs"] <= 25),
-    "weekly_loss": weekly_loss
+    "weight": W, "maintenance": maintenance, "net": int(latest["Net"]),
+    "deficit": deficit_pct, "keto": (latest["carbs"] <= 25), "weekly_loss": weekly_loss
 }
 
-# The HUD Image
-img = render_summary(df, render_metrics)
+img = render_summary(df, render_metrics, workouts_today)
 buf = io.BytesIO()
 img.save(buf, format="PNG")
 img_bytes = buf.getvalue()
 
 st.image(img, use_container_width=True)
 
-# ================== EMAIL SYSTEM ==================
+# ================== EMAIL DISPATCH ==================
 def send_email(image_data):
     msg = MIMEMultipart("related")
     msg["From"] = st.secrets["email"]["sender_email"]
     msg["To"] = st.secrets["email"]["recipient_email"]
-    msg["Subject"] = f"A.R.V.I.S. | Daily Bio-Metric Report | {datetime.now().strftime('%d %b')}"
+    msg["Subject"] = f"A.R.V.I.S. | DAILY REPORT | {datetime.now().strftime('%d %b')}"
 
     body = f"""
-    <html>
-    <body style="background-color: #050A0E; color: #00F2FF; font-family: monospace;">
-        <h2>PROTOCOL STATUS: ONLINE</h2>
-        <img src="cid:hud" style="width:100%; max-width:800px; border: 2px solid #00F2FF;">
-        <p style="color: #A0B0B9;">Target: Eccentric Billionaire Genius. Don't stop.</p>
+    <body style="background-color: #050A0E; color: #00F2FF; font-family: monospace; padding: 20px;">
+        <h2 style="border-bottom: 2px solid #00F2FF;">SYSTEM STATUS: EVOLVING</h2>
+        <img src="cid:hud" style="width:100%; max-width:800px; border: 1px solid #1E3D52;">
+        <p style="color: #A0B0B9; margin-top: 20px;">Protocol: Billionaire Genius. Target: 6% Bodyfat.</p>
     </body>
-    </html>
     """
     msg.attach(MIMEText(body, "html"))
     img_part = MIMEImage(image_data)
@@ -107,9 +99,9 @@ def send_email(image_data):
         server.login(st.secrets["email"]["sender_email"], st.secrets["email"]["app_password"])
         server.send_message(msg)
 
-if st.button("🚀 INITIATE DISPATCH"):
+if st.button("🚀 SYNC TO MOBILE"):
     send_email(img_bytes)
-    st.success("Report Synchronized to Inbox.")
+    st.success("Daily Report Synced.")
 
 if os.getenv("AUTO_EMAIL") == "1":
     send_email(img_bytes)
