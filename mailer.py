@@ -20,7 +20,7 @@ def send_daily_email():
     msg = MIMEMultipart("related")
     msg["From"] = st.secrets["email"]["sender_email"]
     msg["To"] = st.secrets["email"]["recipient_email"]
-    msg["Subject"] = f"A.R.V.I.S. | DAILY REPORT | {datetime.now().strftime('%d %b')}"
+    msg["Subject"] = f"DAILY FITNESS REPORT | {datetime.now().strftime('%d %b')}"
 
     # HTML Body
     body = f"""
