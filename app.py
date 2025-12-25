@@ -16,17 +16,17 @@ from render.render import render_summary
 # ================== PAGE CONFIG ==================
 st.set_page_config(page_title="Evolution Machine", page_icon="⚡", layout="wide")
 
-# High-Tech Styling
 st.markdown("""
 <style>
     [data-testid="stAppViewContainer"] { background: radial-gradient(circle, #001A2E 0%, #050A0E 100%); }
     .stMetric { border: 1px solid #1E3D52; background: #0A1926; padding: 20px; border-radius: 5px; }
     h1 { color: #00F2FF !important; font-family: 'Courier New', monospace; letter-spacing: 2px; }
     [data-testid="stSidebar"] { background-color: #050A0E; border-right: 1px solid #1E3D52; }
+    .stForm { background-color: rgba(0, 242, 255, 0.05); border: 1px solid #1E3D52; border-radius: 10px; }
 </style>
 """, unsafe_allow_html=True)
 
-# ================== DATA ENGINE (TEMPORAL SANITIZER) ==================
+# ================== DATA ENGINE (TEMPORAL RECONCILIATION) ==================
 @st.cache_data(ttl=30)
 def load_sheet(tab):
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
@@ -41,16 +41,16 @@ def load_sheet(tab):
     df = pd.DataFrame(raw_data[1:], columns=raw_data[0])
     
     if "date" in df.columns:
-        # THE FIX: Coerce everything into a unified datetime object, ignoring "ghost" years
+        # Standardize everything to a proper datetime object
         df["date"] = pd.to_datetime(df["date"], dayfirst=True, errors='coerce')
         df = df.dropna(subset=['date'])
-        # Filter for sanity: Remove any dates more than 1 year in the future/past
+        # Kill any temporal anomalies (ghost dates from the future/past)
         now = pd.Timestamp.now()
-        df = df[(df["date"] > now - pd.Timedelta(days=365)) & (df["date"] < now + pd.Timedelta(days=365))]
+        df = df[(df["date"] > now - pd.Timedelta(days=365)) & (df["date"] < now + pd.Timedelta(days=30))]
         df = df.sort_values("date")
     return df
 
-# Fetch Data
+# Initial Sync
 try:
     weights_df   = load_sheet("weights")
     macros_raw   = load_sheet("macros")
@@ -71,22 +71,23 @@ workouts_raw["calories"] = pd.to_numeric(workouts_raw["calories"], errors="coerc
 today_date = pd.Timestamp.now().normalize()
 workouts_today = workouts_raw[workouts_raw['date'] == today_date].rename(columns={"calories": "burned"})
 
+# Fallback for Workouts Display
 if (workouts_today.empty or workouts_today['burned'].sum() == 0) and not workouts_raw.empty:
     last_date = workouts_raw['date'].max()
     workouts_today = workouts_raw[workouts_raw['date'] == last_date].rename(columns={"calories": "burned"})
 
 workouts_agg = workouts_raw.groupby("date", as_index=False).agg({"calories": "sum"}).rename(columns={"calories": "burned"})
 
-# --- MASTER FUSION ---
+# --- MASTER FUSION (Historical Baseline) ---
 df = macros_df.merge(workouts_agg, on="date", how="outer").merge(weights_df, on="date", how="left").fillna(0)
 df = df.sort_values("date")
 df["Net"] = pd.to_numeric(df["calories"]) - pd.to_numeric(df["burned"])
 
-# ================== PHYSIOLOGY ENGINE ==================
-W, maintenance, deficit_pct, weekly_loss = 125.0, 3000, 0.0, 0.0
+# ================== PHYSIOLOGY LOGIC (ROBUST FALLBACK) ==================
+W, maintenance, deficit_pct, weekly_loss = 0.0, 0, 0.0, 0.0
 latest_net, latest_keto = 0, False
-total_days = len(df)
 
+# Check individual sheets if fused DF is empty
 if not weights_df.empty:
     w_series = pd.to_numeric(weights_df["weight"], errors='coerce').ffill()
     if not w_series.dropna().empty:
@@ -114,15 +115,18 @@ st.title("⚡ FITNESS EVOLUTION MACHINE")
 metrics_render = {
     "weight": W, "maintenance": maintenance, "net": latest_net,
     "deficit": deficit_pct, "keto": latest_keto, "weekly_loss": weekly_loss,
-    "day_count": total_days
+    "day_count": len(df) if not df.empty else 1
 }
 
 img_bytes = None
-if not df.empty:
+# Render if at least weight data exists
+if not weights_df.empty or not df.empty:
     try:
-        # Ensure data types are strictly numeric for Matplotlib
-        df["weight"] = pd.to_numeric(df["weight"], errors='coerce').ffill()
-        img = render_summary(df, metrics_render, workouts_today)
+        # Use a dummy row if fusion failed but historical weight exists
+        render_df = df if not df.empty else pd.DataFrame([{"date": datetime.now(), "weight": W}])
+        render_df["weight"] = pd.to_numeric(render_df["weight"], errors='coerce').ffill()
+        
+        img = render_summary(render_df, metrics_render, workouts_today)
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         img_bytes = buf.getvalue()
@@ -135,14 +139,76 @@ else:
 # ================== INPUT TERMINAL (SIDEBAR) ==================
 with st.sidebar:
     st.title("📟 INPUT TERMINAL")
-    with st.form("weight_form", clear_on_submit=True):
-        w_date = st.date_input("Date", datetime.now())
-        w_val = st.number_input("Weight (kg)", step=0.1, format="%.1f")
-        if st.form_submit_button("SYNC WEIGHT"):
-            creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
-            client = gspread.authorize(creds)
-            client.open("Fitness_Evolution_Master").worksheet("weights").append_row([w_date.strftime('%d-%b-%y'), w_val])
-            st.cache_data.clear()
-            st.rerun()
+    
+    with st.expander("⚖️ WEIGHT UPLINK", expanded=False):
+        with st.form("weight_form", clear_on_submit=True):
+            w_date = st.date_input("Date", datetime.now())
+            w_val = st.number_input("Weight (kg)", step=0.1, format="%.1f")
+            if st.form_submit_button("SYNC WEIGHT"):
+                creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
+                client = gspread.authorize(creds)
+                client.open("Fitness_Evolution_Master").worksheet("weights").append_row([w_date.strftime('%d-%b-%y'), w_val])
+                st.cache_data.clear()
+                st.rerun()
 
-    # (Repeat similar forms for Fuel and Workouts, ensuring .strftime('%d-%b-%y') for all)
+    with st.expander("🥗 FUEL INTAKE", expanded=False):
+        with st.form("macro_form", clear_on_submit=True):
+            m_date = st.date_input("Date", datetime.now())
+            m_name = st.text_input("Meal Name", "Macro Session")
+            mp, mc, mf = st.number_input("P", step=1), st.number_input("C", step=1), st.number_input("F", step=1)
+            if st.form_submit_button("SYNC FUEL"):
+                creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
+                client = gspread.authorize(creds)
+                client.open("Fitness_Evolution_Master").worksheet("macros").append_row([m_date.strftime('%d-%b-%y'), m_name, mp, mc, mf])
+                st.cache_data.clear()
+                st.rerun()
+
+    with st.expander("🏋️ PHYSICAL OUTPUT", expanded=True):
+        with st.form("workout_form", clear_on_submit=True):
+            wo_date = st.date_input("Date", datetime.now())
+            wo_type = st.selectbox("Type", ["Strength", "Cardio", "Static Cycle"])
+            ex_name = st.text_input("Exercise Name")
+            if wo_type == "Strength":
+                sets, duration = st.number_input("Sets", step=1, value=0), 0
+            else:
+                duration, sets = st.number_input("Duration (mins)", step=1, value=0), 0
+            cals = st.number_input("Calories Burned", step=1)
+            if st.form_submit_button("SYNC OUTPUT"):
+                creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
+                client = gspread.authorize(creds)
+                client.open("Fitness_Evolution_Master").worksheet("workouts").append_row([wo_date.strftime('%d-%b-%y'), wo_type, ex_name, duration, sets, cals])
+                st.cache_data.clear()
+                st.rerun()
+
+# ================== EMAIL DISPATCH ==================
+def send_email(image_data):
+    if image_data is None:
+        st.warning("No data for dispatch.")
+        return
+    msg = MIMEMultipart("related")
+    msg["From"] = st.secrets["email"]["sender_email"]
+    msg["To"] = st.secrets["email"]["recipient_email"]
+    msg["Subject"] = f"A.R.V.I.S. | DAILY REPORT | {datetime.now().strftime('%d %b')}"
+    body = f"""<body style="background-color: #050A0E; color: #00F2FF; font-family: monospace; padding: 20px;">
+        <h2 style="border-bottom: 2px solid #00F2FF;">SYSTEM STATUS: NOMINAL</h2>
+        <img src="cid:hud" style="width:100%; max-width:800px; border: 1px solid #1E3D52;">
+        <div style="margin-top: 30px; text-align: center;">
+            <a href="https://fitness-evolution.streamlit.app" style="background-color: #00F2FF; color: #050A0E; padding: 18px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px;">OPEN INPUT TERMINAL</a>
+        </div></body>"""
+    msg.attach(MIMEText(body, "html"))
+    img_part = MIMEImage(image_data)
+    img_part.add_header("Content-ID", "<hud>")
+    msg.attach(img_part)
+    with smtplib.SMTP(st.secrets["email"]["smtp_server"], st.secrets["email"]["smtp_port"]) as server:
+        server.starttls()
+        server.login(st.secrets["email"]["sender_email"], st.secrets["email"]["app_password"])
+        server.send_message(msg)
+    st.success("Report Dispatched.")
+
+with st.sidebar:
+    st.divider()
+    if st.button("📧 DISPATCH DAILY REPORT"):
+        send_email(img_bytes)
+
+if os.getenv("AUTO_EMAIL") == "1" and img_bytes:
+    send_email(img_bytes)
