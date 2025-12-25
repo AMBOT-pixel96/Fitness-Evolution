@@ -81,38 +81,65 @@ df = df.sort_values("date")
 df["Net"] = df["calories"] - df["burned"]
 
 # ================== PHYSIOLOGY LOGIC (ROBUST) ==================
-# Default values in case the sheet is empty
 W, maintenance, deficit_pct, weekly_loss = 0.0, 0, 0.0, 0.0
+latest_net = 0
+latest_keto = False
 
-if not df.empty and "weight" in df.columns and len(df["weight"].dropna()) > 0:
+if not df.empty:
     try:
-        # Convert to numeric, handle zeros, and forward fill
+        # 1. Weight Processing
         weight_series = pd.to_numeric(df["weight"], errors='coerce').replace(0, np.nan).ffill()
-        
-        # Only grab iloc[-1] if there is actually data in the series
         valid_weights = weight_series.dropna()
         if not valid_weights.empty:
             W = float(valid_weights.iloc[-1])
             
-            # Maintenance Math
-            h_cm = float(prof["height_cm"])
-            age_val = int(prof["age"])
-            maintenance = int((10*W + 6.25*h_cm - 5*age_val + 5) * 1.35)
+        # 2. Maintenance Calculation
+        h_cm = float(prof["height_cm"])
+        age_val = int(prof["age"])
+        maintenance = int((10*W + 6.25*h_cm - 5*age_val + 5) * 1.35)
+        
+        # 3. Latest Row Safety
+        latest_row = df.iloc[-1]
+        latest_net = int(latest_row.get("Net", 0))
+        latest_keto = bool(latest_row.get("carbs", 100) <= 25)
+        
+        # 4. Deficit & Projections
+        if maintenance > 0:
+            deficit_pct = round((maintenance - latest_net) / maintenance * 100, 1)
+        
+        recent_net = df.tail(7)["Net"]
+        if not recent_net.empty:
+            weekly_loss = round((abs(recent_net.mean()) * 7) / 7700, 2)
             
-            # Latest Day Stats
-            latest = df.iloc[-1]
-            if maintenance > 0:
-                deficit_pct = round((maintenance - latest["Net"]) / maintenance * 100, 1)
-            
-            # Weekly Projection
-            recent_net = df.tail(7)["Net"]
-            if not recent_net.empty:
-                weekly_loss = round((abs(recent_net.mean()) * 7) / 7700, 2)
     except Exception as e:
-        st.warning(f"Physiology Engine Idle: {e}")
+        st.warning(f"Physiology Engine calculation error: {e}")
+
+# ================== RENDER HUD ==================
+st.title("⚡ FITNESS EVOLUTION MACHINE")
+
+# Pack the metrics safely
+metrics_render = {
+    "weight": W, 
+    "maintenance": maintenance, 
+    "net": latest_net,
+    "deficit": deficit_pct, 
+    "keto": latest_keto, 
+    "weekly_loss": weekly_loss
+}
+
+# Only attempt to render the image if we have a valid dataframe
+if not df.empty:
+    try:
+        img = render_summary(df, metrics_render, workouts_today)
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        img_bytes = buf.getvalue()
+        st.image(img, use_container_width=True)
+    except Exception as e:
+        st.error(f"Render Engine Error: {e}")
 else:
     st.info("⚡ System Online: Awaiting initial Biometric Sync via Input Terminal.")
-
+    img_bytes = None # Prevent email dispatch from crashing
 
 # ================== INPUT TERMINAL (SIDEBAR) ==================
 with st.sidebar:
