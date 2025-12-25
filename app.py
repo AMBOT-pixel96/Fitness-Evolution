@@ -16,6 +16,15 @@ from render.render import render_summary
 # ================== PAGE CONFIG ==================
 st.set_page_config(page_title="Evolution Machine", page_icon="⚡", layout="wide")
 
+st.markdown("""
+<style>
+    [data-testid="stAppViewContainer"] { background: radial-gradient(circle, #001A2E 0%, #050A0E 100%); }
+    .stMetric { border: 1px solid #1E3D52; background: #0A1926; padding: 20px; border-radius: 5px; }
+    h1 { color: #00F2FF !important; font-family: 'Courier New', monospace; letter-spacing: 2px; }
+    [data-testid="stSidebar"] { background-color: #050A0E; border-right: 1px solid #1E3D52; }
+</style>
+""", unsafe_allow_html=True)
+
 # ================== DATA ENGINE ==================
 @st.cache_data(ttl=300)
 def load_sheet(tab):
@@ -40,7 +49,7 @@ for col in ["protein", "carbs", "fats"]:
 macros_df = macros_raw.groupby("date", as_index=False).agg({"protein": "sum", "carbs": "sum", "fats": "sum"})
 macros_df["calories"] = (macros_df["protein"] * 4 + macros_df["carbs"] * 4 + macros_df["fats"] * 9)
 
-# Process Workouts (FIXED: Today or Last Entry Fallback)
+# Process Workouts (Fallback Logic)
 workouts_raw["calories"] = pd.to_numeric(workouts_raw["calories"], errors="coerce").fillna(0)
 today_date = pd.Timestamp.now().normalize()
 workouts_today = workouts_raw[workouts_raw['date'] == today_date].rename(columns={"calories": "burned"})
@@ -64,6 +73,41 @@ latest = df.iloc[-1]
 deficit_pct = round((maintenance - latest["Net"]) / maintenance * 100, 1)
 weekly_loss = round((abs(df.tail(7)["Net"].mean()) * 7) / 7700, 2)
 
+# ================== DATA LOGGING TERMINAL ==================
+with st.sidebar:
+    st.title("📟 INPUT TERMINAL")
+    with st.form("daily_sync", clear_on_submit=True):
+        entry_date = st.date_input("Date", datetime.now())
+        weight_in = st.number_input("Weight (kg)", value=0.0, step=0.1)
+        
+        st.divider()
+        st.caption("FUEL INTAKE")
+        p = st.number_input("Prot", value=0, step=1)
+        c = st.number_input("Carb", value=0, step=1)
+        f = st.number_input("Fat", value=0, step=1)
+        
+        st.divider()
+        st.caption("PHYSICAL OUTPUT")
+        ex_type = st.selectbox("Type", ["Strength", "Cardio", "Static Cycle", "Sadhana"])
+        burn_val = st.number_input("Burn (kcal)", value=0, step=1)
+        
+        sync_btn = st.form_submit_button("🚀 SYNC TO CLOUD")
+        
+        if sync_btn:
+            creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], 
+                    scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
+            client = gspread.authorize(creds)
+            master = client.open("Fitness_Evolution_Master")
+            d_str = entry_date.strftime('%d/%m/%Y')
+            
+            if weight_in > 0: master.worksheet("weights").append_row([d_str, weight_in])
+            master.worksheet("macros").append_row([d_str, p, c, f])
+            if burn_val > 0: master.worksheet("workouts").append_row([d_str, ex_type, burn_val])
+            
+            st.success("SYNC COMPLETE")
+            st.cache_data.clear()
+            st.rerun()
+
 # ================== RENDER HUD ==================
 st.title("⚡ FITNESS EVOLUTION MACHINE")
 
@@ -86,11 +130,19 @@ def send_email(image_data):
     msg["To"] = st.secrets["email"]["recipient_email"]
     msg["Subject"] = f"A.R.V.I.S. | DAILY REPORT | {datetime.now().strftime('%d %b')}"
 
+    # Note: Replace URL with your actual Streamlit Deployment URL
+    app_url = "https://fitness-evolution.streamlit.app" 
+    
     body = f"""
     <body style="background-color: #050A0E; color: #00F2FF; font-family: monospace; padding: 20px;">
         <h2 style="border-bottom: 2px solid #00F2FF;">SYSTEM STATUS: NOMINAL</h2>
         <img src="cid:hud" style="width:100%; max-width:800px; border: 1px solid #1E3D52;">
-        <p style="color: #A0B0B9; margin-top: 20px;">Stay eccentric. Stay genius. Protocol continues.</p>
+        <div style="margin-top: 30px; text-align: center;">
+            <a href="{app_url}" style="background-color: #00F2FF; color: #050A0E; padding: 18px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px;">
+               OPEN INPUT TERMINAL
+            </a>
+        </div>
+        <p style="color: #A0B0B9; margin-top: 25px; font-size: 12px;">Machine: Online | Target: Genius</p>
     </body>
     """
     msg.attach(MIMEText(body, "html"))
@@ -103,9 +155,9 @@ def send_email(image_data):
         server.login(st.secrets["email"]["sender_email"], st.secrets["email"]["app_password"])
         server.send_message(msg)
 
-if st.button("🚀 SYNC TO MOBILE"):
+if st.button("📧 MANUAL DISPATCH"):
     send_email(img_bytes)
-    st.success("Report Synced.")
+    st.success("Report Sent.")
 
 if os.getenv("AUTO_EMAIL") == "1":
     send_email(img_bytes)
