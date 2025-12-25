@@ -3,17 +3,16 @@ from PIL import Image, ImageDraw, ImageFont
 import io
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
 
-# --- TONY STARK HUD THEME ---
+# --- STARK HUD THEME ---
 CYAN = "#00F2FF"
-DEEP_BLUE = "#001A2E"
 BG_DARK = "#050A0E"
 NEON_GREEN = "#39FF14"
 NEON_RED = "#FF3131"
 TEXT_GREY = "#A0B0B9"
 
 def draw_glass_card(draw, x, y, w, h, title=""):
-    """Draws a futuristic semi-transparent glass container"""
     draw.rectangle([x, y, x+w, y+h], fill="#0A1926", outline="#1E3D52", width=2)
     draw.line([x, y, x+w, y], fill="#3E7DA3", width=3)
     try:
@@ -32,15 +31,13 @@ def render_summary(df, metrics, workouts_today):
         f_mid = ImageFont.truetype("DejaVuSans-Bold.ttf", 45)
         f_reg = ImageFont.truetype("DejaVuSans.ttf", 28)
         f_day = ImageFont.truetype("DejaVuSans-Bold.ttf", 32)
-        f_stats = ImageFont.truetype("DejaVuSans-Bold.ttf", 35)
     except:
-        f_huge = f_mid = f_reg = f_day = f_stats = ImageFont.load_default()
+        f_huge = f_mid = f_reg = f_day = ImageFont.load_default()
 
-    # --- HEADER: RESOLVED OVERLAP ---
+    # --- HEADER: Day Counter Fix ---
     draw.rectangle([0, 0, width, 120], fill="#001F33")
     draw.text((40, 35), "FITNESS EVOLUTION MACHINE", fill=CYAN, font=f_mid)
-    # Day counter shifted far right to prevent title collision
-    draw.text((width-220, 42), f"{len(df)} OF 60", fill=CYAN, font=f_day) 
+    draw.text((width-220, 42), f"{metrics['day_count']} OF 60", fill=CYAN, font=f_day) 
     draw.line([0, 120, width, 120], fill=CYAN, width=4)
 
     # --- PRIMARY BIO-METRICS ---
@@ -49,19 +46,19 @@ def render_summary(df, metrics, workouts_today):
     draw.text((440, 255), "KG", fill=CYAN, font=f_mid)
     draw.text((40, 310), f"PROJECTION: {metrics.get('weekly_loss', 0)} KG/WEEK", fill=NEON_GREEN, font=f_reg)
 
-    # --- THREE COLUMN HUD ---
     col_w, start_y, card_h = 310, 400, 420
     
-    # 1. THERMODYNAMICS
+    # 1. Thermodynamics Card
     draw_glass_card(draw, 30, start_y, col_w, card_h, "Thermodynamics")
     draw.text((50, start_y+30), f"MAINT: {metrics['maintenance']}", fill=TEXT_GREY, font=f_reg)
     bar_h = 220
     draw.rectangle([60, start_y+80, 90, start_y+80+bar_h], fill="#1E3D52")
+    # Deficit fill
     fill_h = int(bar_h * (min(metrics['deficit'], 100)/100))
     draw.rectangle([60, start_y+80+(bar_h-fill_h), 90, start_y+80+bar_h], fill=NEON_RED)
-    draw.text((110, start_y+160), f"NET: {metrics['net']}", fill="#FFFFFF", font=f_stats)
+    draw.text((110, start_y+160), f"NET: {metrics['net']}", fill="#FFFFFF", font=f_mid)
 
-    # 2. BIO-CHEMICAL STACK
+    # 2. Bio-Chemical Stack
     draw_glass_card(draw, 385, start_y, col_w, card_h, "Bio-Chemical Stack")
     keto_col = NEON_GREEN if metrics['keto'] else NEON_RED
     draw.text((400, start_y+30), f"KETOSIS: {'ACTIVE' if metrics['keto'] else 'OFF'}", fill=keto_col, font=f_reg)
@@ -69,54 +66,39 @@ def render_summary(df, metrics, workouts_today):
     for i, s in enumerate(supps):
         draw.text((400, start_y+80+(i*40)), f"• {s}", fill=CYAN, font=f_reg)
 
-    # 3. PHYSICAL OUTPUT: HORIZONTAL BAR CHART
+    # 3. Physical Output Card (Horizontal Bars)
     draw_glass_card(draw, 740, start_y, col_w, card_h, "Physical Output")
     if not workouts_today.empty and workouts_today['burned'].sum() > 0:
         exercise_data = workouts_today.groupby('exercise')['burned'].sum().sort_values()
-        
         plt.style.use('dark_background')
         fig, ax = plt.subplots(figsize=(3.5, 3.5), facecolor='#0A1926')
-        
-        # Horizontal Bar Chart Logic
-        bars = ax.barh(exercise_data.index, exercise_data.values, color=CYAN, height=0.6)
-        ax.set_facecolor('#0A1926')
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
-        ax.spines['left'].set_color('#1E3D52')
-        ax.spines['bottom'].set_color('#1E3D52')
-        ax.tick_params(axis='both', which='major', labelsize=10, colors=TEXT_GREY)
-        
-        # Add labels on bars
-        for bar in bars:
-            width_val = bar.get_width()
-            ax.text(width_val, bar.get_y() + bar.get_height()/2, f' {int(width_val)}', 
-                    va='center', ha='left', color=NEON_GREEN, fontsize=9, fontweight='bold')
-
-        plt.tight_layout()
+        ax.barh(exercise_data.index, exercise_data.values, color=CYAN)
+        ax.axis('off')
         buf = io.BytesIO()
         fig.savefig(buf, format='png', transparent=True, dpi=100)
         plt.close(fig)
         buf.seek(0)
-        workout_bars = Image.open(buf).resize((280, 280))
-        img.paste(workout_bars, (755, start_y+100), workout_bars)
-        
-        draw.text((760, start_y+40), f"TOTAL BURN: {int(exercise_data.sum())}", fill=NEON_GREEN, font=f_reg)
+        img.paste(Image.open(buf).resize((280, 280)), (755, start_y+100), Image.open(buf).resize((280, 280)))
+        draw.text((760, start_y+40), f"TOTAL: {int(exercise_data.sum())}", fill=NEON_GREEN, font=f_reg)
     else:
         draw.text((770, start_y+180), "SYSTEM IDLE", fill=TEXT_GREY, font=f_reg)
 
-    # --- BOTTOM CHART: WEIGHT TREND ---
+    # --- Weight Trend Fix (Prevents Conking Off) ---
     fig, ax = plt.subplots(figsize=(10, 3.5), facecolor=BG_DARK)
-    recent = df.tail(14)
-    ax.plot(recent["date"], recent["weight"], color=CYAN, linewidth=3, marker='o', markersize=8, mfc=BG_DARK, mew=2)
-    ax.fill_between(recent["date"], recent["weight"], recent["weight"].min()-1, color=CYAN, alpha=0.1)
+    # Filter for last 14 unique dates to keep axis clean
+    recent = df.sort_values('date').tail(14)
+    # Explicitly convert to numeric to avoid ufunc error
+    weights = pd.to_numeric(recent["weight"], errors='coerce').ffill()
     
-    latest_date, latest_val = recent["date"].iloc[-1], recent["weight"].iloc[-1]
-    ax.annotate(f"{latest_val}", (latest_date, latest_val), textcoords="offset points", xytext=(0,12), ha='center', color="#FFFFFF", weight='bold', fontsize=12)
+    ax.plot(recent["date"], weights, color=CYAN, linewidth=3, marker='o', mfc=BG_DARK)
+    ax.fill_between(recent["date"], weights, weights.min()-1, color=CYAN, alpha=0.1)
     
-    ax.set_title("ACTUAL WEIGHT (14D) - BILLIONAIRE GOAL", color=CYAN, pad=15, fontweight='bold')
-    ax.set_ylabel("KG", color=TEXT_GREY)
+    # Only label the very latest point
+    ax.annotate(f"{weights.iloc[-1]}", (recent["date"].iloc[-1], weights.iloc[-1]), color="#FFFFFF", weight='bold')
+    
+    ax.set_title("ACTUAL WEIGHT (14D) - BILLIONAIRE GOAL", color=CYAN, fontweight='bold')
     ax.grid(color='#1E3D52', linestyle='--', alpha=0.4)
-    ax.tick_params(axis='both', colors=TEXT_GREY)
+    plt.xticks(rotation=30)
     
     buf = io.BytesIO()
     fig.savefig(buf, format='png', facecolor=BG_DARK)
@@ -124,6 +106,5 @@ def render_summary(df, metrics, workouts_today):
     buf.seek(0)
     img.paste(Image.open(buf).resize((1000, 350)), (40, 880))
 
-    # --- FOOTER ---
     draw.text((width//2 - 380, height-60), "PHYSIQUE: ASCENDING. FAT CELLS: SCREAMING.", fill=CYAN, font=f_reg)
     return img
