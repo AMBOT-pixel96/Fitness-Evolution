@@ -26,7 +26,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ================== DATA ENGINE (ROBUST) ==================
+# ================== DATA ENGINE (ROBUST & STANDARDIZED) ==================
 @st.cache_data(ttl=60)
 def load_sheet(tab):
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
@@ -35,15 +35,16 @@ def load_sheet(tab):
     sheet = client.open("Fitness_Evolution_Master").worksheet(tab)
     
     raw_data = sheet.get_all_values()
-    if not raw_data:
+    if not raw_data or len(raw_data) < 2:
         return pd.DataFrame()
         
     df = pd.DataFrame(raw_data[1:], columns=raw_data[0])
     df = df.replace(r'^\s*$', np.nan, regex=True)
     
     if "date" in df.columns:
+        # Force strict parsing to handle '24-Dec-25' and '2025-12-24' simultaneously
         df["date"] = pd.to_datetime(df["date"], format='mixed', dayfirst=True, errors='coerce')
-        df = df.dropna(subset=['date'])
+        df = df.dropna(subset=['date']).sort_values("date")
     return df
 
 # Initial Sync
@@ -53,7 +54,7 @@ try:
     workouts_raw = load_sheet("workouts")
     profile_df   = load_sheet("profile")
 except Exception as e:
-    st.error(f"Sync Interrupted: Ensure Sheet headers match protocol. Error: {e}")
+    st.error(f"Sync Interrupted: {e}")
     st.stop()
 
 # Macro Processing
@@ -67,44 +68,41 @@ workouts_raw["calories"] = pd.to_numeric(workouts_raw["calories"], errors="coerc
 today_date = pd.Timestamp.now().normalize()
 workouts_today = workouts_raw[workouts_raw['date'] == today_date].rename(columns={"calories": "burned"})
 
-# Fallback for Workouts
+# Fallback for Workouts Display
 if (workouts_today.empty or workouts_today['burned'].sum() == 0) and not workouts_raw.empty:
     last_date = workouts_raw['date'].max()
     workouts_today = workouts_raw[workouts_raw['date'] == last_date].rename(columns={"calories": "burned"})
 
 workouts_agg = workouts_raw.groupby("date", as_index=False).agg({"calories": "sum"}).rename(columns={"calories": "burned"})
 
-# Master Data Fusion
+# Data Fusion
 df = macros_df.merge(workouts_agg, on="date", how="outer").merge(weights_df, on="date", how="left").fillna(0)
 df = df.sort_values("date")
 df["Net"] = df["calories"] - df["burned"]
 
-# ================== PHYSIOLOGY LOGIC (RESILIENT) ==================
+# ================== PHYSIOLOGY LOGIC (GATED & RESILIENT) ==================
 W, maintenance, deficit_pct, weekly_loss = 0.0, 0, 0.0, 0.0
 latest_net = 0
 latest_keto = False
+total_days = len(df) if not df.empty else 1
 
-# 1. Reliable Weight Extraction
 if not weights_df.empty:
-    try:
-        w_series = pd.to_numeric(weights_df["weight"], errors='coerce').ffill()
-        if not w_series.dropna().empty:
-            W = float(w_series.dropna().iloc[-1])
-    except: W = 0.0
+    w_series = pd.to_numeric(weights_df["weight"], errors='coerce').ffill()
+    if not w_series.dropna().empty:
+        W = float(w_series.dropna().iloc[-1])
 
-# 2. Maintenance Calculation (Gated by Profile)
 if not profile_df.empty and W > 0:
     prof = profile_df.iloc[0]
     h_cm, age_val = float(prof["height_cm"]), int(prof["age"])
-    s = 5 if prof["gender"] == "Male" else -161
+    s = 5 if prof.get("gender") == "Male" else -161
     maintenance = int((10*W + 6.25*h_cm - 5*age_val + s) * 1.35)
 
-# 3. Snapshot Stats
 if not df.empty:
     try:
         latest_row = df.iloc[-1]
         latest_net = int(latest_row.get("Net", 0))
-        latest_keto = bool(latest_row.get("carbs", 100) <= 25 and latest_row.get("carbs", 100) > 0)
+        # Keto logic check
+        latest_keto = bool(latest_row.get("carbs", 100) <= 25 and latest_row.get("carbs", 0) > 0)
         
         if maintenance > 0:
             deficit_pct = round((maintenance - latest_net) / maintenance * 100, 1)
@@ -119,16 +117,15 @@ st.title("⚡ FITNESS EVOLUTION MACHINE")
 
 metrics_render = {
     "weight": W, "maintenance": maintenance, "net": latest_net,
-    "deficit": deficit_pct, "keto": latest_keto, "weekly_loss": weekly_loss
+    "deficit": deficit_pct, "keto": latest_keto, "weekly_loss": weekly_loss,
+    "day_count": total_days
 }
 
 img_bytes = None
-# Render if there's any trace of data
-if not weights_df.empty or not df.empty:
+if not df.empty or not weights_df.empty:
     try:
-        # Dummy DF creation for first-time use
-        render_df = df if not df.empty else pd.DataFrame([{"date": datetime.now(), "weight": W}])
-        img = render_summary(render_df, metrics_render, workouts_today)
+        # Pass the full df for historical graphs
+        img = render_summary(df, metrics_render, workouts_today)
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         img_bytes = buf.getvalue()
@@ -223,7 +220,7 @@ def send_email(image_data):
         server.send_message(msg)
     st.success("System: Report Dispatched.")
 
-# Manual Dispatch
+# Manual Dispatch Control
 with st.sidebar:
     st.divider()
     if st.button("📧 DISPATCH DAILY REPORT"):
