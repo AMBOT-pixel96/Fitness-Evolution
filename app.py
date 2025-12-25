@@ -67,39 +67,44 @@ workouts_raw["calories"] = pd.to_numeric(workouts_raw["calories"], errors="coerc
 today_date = pd.Timestamp.now().normalize()
 workouts_today = workouts_raw[workouts_raw['date'] == today_date].rename(columns={"calories": "burned"})
 
-if workouts_today.empty and not workouts_raw.empty:
+# Fallback for Workouts
+if (workouts_today.empty or workouts_today['burned'].sum() == 0) and not workouts_raw.empty:
     last_date = workouts_raw['date'].max()
     workouts_today = workouts_raw[workouts_raw['date'] == last_date].rename(columns={"calories": "burned"})
 
 workouts_agg = workouts_raw.groupby("date", as_index=False).agg({"calories": "sum"}).rename(columns={"calories": "burned"})
 
-# Data Fusion
+# Master Data Fusion
 df = macros_df.merge(workouts_agg, on="date", how="outer").merge(weights_df, on="date", how="left").fillna(0)
 df = df.sort_values("date")
 df["Net"] = df["calories"] - df["burned"]
 
-# ================== PHYSIOLOGY LOGIC (GATED) ==================
+# ================== PHYSIOLOGY LOGIC (RESILIENT) ==================
 W, maintenance, deficit_pct, weekly_loss = 0.0, 0, 0.0, 0.0
 latest_net = 0
 latest_keto = False
 
+# 1. Reliable Weight Extraction
+if not weights_df.empty:
+    try:
+        w_series = pd.to_numeric(weights_df["weight"], errors='coerce').ffill()
+        if not w_series.dropna().empty:
+            W = float(w_series.dropna().iloc[-1])
+    except: W = 0.0
+
+# 2. Maintenance Calculation (Gated by Profile)
+if not profile_df.empty and W > 0:
+    prof = profile_df.iloc[0]
+    h_cm, age_val = float(prof["height_cm"]), int(prof["age"])
+    s = 5 if prof["gender"] == "Male" else -161
+    maintenance = int((10*W + 6.25*h_cm - 5*age_val + s) * 1.35)
+
+# 3. Snapshot Stats
 if not df.empty:
     try:
-        # Weight Logic
-        weight_series = pd.to_numeric(df["weight"], errors='coerce').replace(0, np.nan).ffill()
-        valid_weights = weight_series.dropna()
-        if not valid_weights.empty:
-            W = float(valid_weights.iloc[-1])
-            
-        # Biometrics
-        prof = profile_df.iloc[0]
-        h_cm, age_val = float(prof["height_cm"]), int(prof["age"])
-        maintenance = int((10*W + 6.25*h_cm - 5*age_val + 5) * 1.35)
-        
-        # Latest Snapshot
         latest_row = df.iloc[-1]
         latest_net = int(latest_row.get("Net", 0))
-        latest_keto = bool(latest_row.get("carbs", 100) <= 25)
+        latest_keto = bool(latest_row.get("carbs", 100) <= 25 and latest_row.get("carbs", 100) > 0)
         
         if maintenance > 0:
             deficit_pct = round((maintenance - latest_net) / maintenance * 100, 1)
@@ -107,8 +112,7 @@ if not df.empty:
         recent_net = df.tail(7)["Net"]
         if not recent_net.empty:
             weekly_loss = round((abs(recent_net.mean()) * 7) / 7700, 2)
-    except Exception as e:
-        st.warning(f"Physiology Engine calculation error: {e}")
+    except: pass
 
 # ================== RENDER HUD ==================
 st.title("⚡ FITNESS EVOLUTION MACHINE")
@@ -119,15 +123,18 @@ metrics_render = {
 }
 
 img_bytes = None
-if not df.empty:
+# Render if there's any trace of data
+if not weights_df.empty or not df.empty:
     try:
-        img = render_summary(df, metrics_render, workouts_today)
+        # Dummy DF creation for first-time use
+        render_df = df if not df.empty else pd.DataFrame([{"date": datetime.now(), "weight": W}])
+        img = render_summary(render_df, metrics_render, workouts_today)
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         img_bytes = buf.getvalue()
         st.image(img, use_container_width=True)
     except Exception as e:
-        st.error(f"Render Engine Error: {e}")
+        st.error(f"Render Engine Offline: {e}")
 else:
     st.info("⚡ System Online: Awaiting initial Biometric Sync via Input Terminal.")
 
@@ -185,7 +192,7 @@ with st.sidebar:
 # ================== EMAIL DISPATCH ==================
 def send_email(image_data):
     if image_data is None:
-        st.warning("No visual data found for dispatch.")
+        st.warning("No visual data for dispatch.")
         return
         
     msg = MIMEMultipart("related")
@@ -216,7 +223,7 @@ def send_email(image_data):
         server.send_message(msg)
     st.success("System: Report Dispatched.")
 
-# Dispatch Logic
+# Manual Dispatch
 with st.sidebar:
     st.divider()
     if st.button("📧 DISPATCH DAILY REPORT"):
