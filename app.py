@@ -27,7 +27,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ================== DATA ENGINE (TEMPORAL RECONCILIATION) ==================
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=60)
 def load_sheet(tab):
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
@@ -39,12 +39,13 @@ def load_sheet(tab):
         return pd.DataFrame()
         
     df = pd.DataFrame(raw_data[1:], columns=raw_data[0])
+    df = df.replace(r'^\s*$', np.nan, regex=True)
     
     if "date" in df.columns:
-        # Standardize everything to a proper datetime object
-        df["date"] = pd.to_datetime(df["date"], dayfirst=True, errors='coerce')
+        # THE FIX: Mixed format parsing + cleaning ghost dates
+        df["date"] = pd.to_datetime(df["date"], format='mixed', dayfirst=True, errors='coerce')
         df = df.dropna(subset=['date'])
-        # Kill any temporal anomalies (ghost dates from the future/past)
+        # Filter out extreme outlier dates that break Matplotlib scaling
         now = pd.Timestamp.now()
         df = df[(df["date"] > now - pd.Timedelta(days=365)) & (df["date"] < now + pd.Timedelta(days=30))]
         df = df.sort_values("date")
@@ -80,14 +81,14 @@ workouts_agg = workouts_raw.groupby("date", as_index=False).agg({"calories": "su
 
 # --- MASTER FUSION (Historical Baseline) ---
 df = macros_df.merge(workouts_agg, on="date", how="outer").merge(weights_df, on="date", how="left").fillna(0)
-df = df.sort_values("date")
+df = df.sort_values("date").drop_duplicates('date')
 df["Net"] = pd.to_numeric(df["calories"]) - pd.to_numeric(df["burned"])
 
 # ================== PHYSIOLOGY LOGIC (ROBUST FALLBACK) ==================
 W, maintenance, deficit_pct, weekly_loss = 0.0, 0, 0.0, 0.0
 latest_net, latest_keto = 0, False
+total_days = len(df['date'].unique()) if not df.empty else 1
 
-# Check individual sheets if fused DF is empty
 if not weights_df.empty:
     w_series = pd.to_numeric(weights_df["weight"], errors='coerce').ffill()
     if not w_series.dropna().empty:
@@ -100,14 +101,19 @@ if not profile_df.empty and W > 0:
     maintenance = int((10*W + 6.25*h_cm - 5*age_val + s) * 1.35)
 
 if not df.empty:
-    latest_row = df.iloc[-1]
-    latest_net = int(latest_row.get("Net", 0))
-    latest_keto = bool(latest_row.get("carbs", 100) <= 25 and latest_row.get("carbs", 0) > 0)
-    if maintenance > 0:
-        deficit_pct = round((maintenance - latest_net) / maintenance * 100, 1)
-    recent_net = df.tail(7)["Net"]
-    if not recent_net.empty:
-        weekly_loss = round((abs(recent_net.mean()) * 7) / 7700, 2)
+    try:
+        latest_row = df.iloc[-1]
+        latest_net = int(latest_row.get("Net", 0))
+        # Keto check: Carbs <= 25 and we actually have data for that day
+        latest_keto = bool(latest_row.get("carbs", 100) <= 25 and latest_row.get("protein", 0) > 0)
+        
+        if maintenance > 0:
+            deficit_pct = round((maintenance - latest_net) / maintenance * 100, 1)
+        
+        recent_net = df.tail(7)["Net"]
+        if not recent_net.empty:
+            weekly_loss = round((abs(recent_net.mean()) * 7) / 7700, 2)
+    except: pass
 
 # ================== RENDER HUD ==================
 st.title("⚡ FITNESS EVOLUTION MACHINE")
@@ -115,15 +121,15 @@ st.title("⚡ FITNESS EVOLUTION MACHINE")
 metrics_render = {
     "weight": W, "maintenance": maintenance, "net": latest_net,
     "deficit": deficit_pct, "keto": latest_keto, "weekly_loss": weekly_loss,
-    "day_count": len(df) if not df.empty else 1
+    "day_count": total_days
 }
 
 img_bytes = None
-# Render if at least weight data exists
+# Render if at least weight data or merged data exists
 if not weights_df.empty or not df.empty:
     try:
         # Use a dummy row if fusion failed but historical weight exists
-        render_df = df if not df.empty else pd.DataFrame([{"date": datetime.now(), "weight": W}])
+        render_df = df if not df.empty else pd.DataFrame([{"date": pd.Timestamp.now(), "weight": W}])
         render_df["weight"] = pd.to_numeric(render_df["weight"], errors='coerce').ffill()
         
         img = render_summary(render_df, metrics_render, workouts_today)
@@ -134,7 +140,7 @@ if not weights_df.empty or not df.empty:
     except Exception as e:
         st.error(f"Render Engine Offline: {e}")
 else:
-    st.info("⚡ Awaiting initial Biometric Sync via Input Terminal.")
+    st.info("⚡ System Online: Awaiting initial Biometric Sync via Input Terminal.")
 
 # ================== INPUT TERMINAL (SIDEBAR) ==================
 with st.sidebar:
@@ -142,68 +148,84 @@ with st.sidebar:
     
     with st.expander("⚖️ WEIGHT UPLINK", expanded=False):
         with st.form("weight_form", clear_on_submit=True):
-            w_date = st.date_input("Date", datetime.now())
+            w_date = st.date_input("Date", datetime.now(), key="w_d")
             w_val = st.number_input("Weight (kg)", step=0.1, format="%.1f")
             if st.form_submit_button("SYNC WEIGHT"):
                 creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
                 client = gspread.authorize(creds)
                 client.open("Fitness_Evolution_Master").worksheet("weights").append_row([w_date.strftime('%d-%b-%y'), w_val])
+                st.success("Weight Logged")
                 st.cache_data.clear()
                 st.rerun()
 
     with st.expander("🥗 FUEL INTAKE", expanded=False):
         with st.form("macro_form", clear_on_submit=True):
-            m_date = st.date_input("Date", datetime.now())
+            m_date = st.date_input("Date", datetime.now(), key="m_d")
             m_name = st.text_input("Meal Name", "Macro Session")
             mp, mc, mf = st.number_input("P", step=1), st.number_input("C", step=1), st.number_input("F", step=1)
             if st.form_submit_button("SYNC FUEL"):
                 creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
                 client = gspread.authorize(creds)
                 client.open("Fitness_Evolution_Master").worksheet("macros").append_row([m_date.strftime('%d-%b-%y'), m_name, mp, mc, mf])
+                st.success("Fuel Logged")
                 st.cache_data.clear()
                 st.rerun()
 
     with st.expander("🏋️ PHYSICAL OUTPUT", expanded=True):
         with st.form("workout_form", clear_on_submit=True):
-            wo_date = st.date_input("Date", datetime.now())
+            wo_date = st.date_input("Date", datetime.now(), key="wo_d")
             wo_type = st.selectbox("Type", ["Strength", "Cardio", "Static Cycle"])
             ex_name = st.text_input("Exercise Name")
+            
             if wo_type == "Strength":
                 sets, duration = st.number_input("Sets", step=1, value=0), 0
             else:
                 duration, sets = st.number_input("Duration (mins)", step=1, value=0), 0
+                
             cals = st.number_input("Calories Burned", step=1)
             if st.form_submit_button("SYNC OUTPUT"):
                 creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
                 client = gspread.authorize(creds)
-                client.open("Fitness_Evolution_Master").worksheet("workouts").append_row([wo_date.strftime('%d-%b-%y'), wo_type, ex_name, duration, sets, cals])
+                client.open("Fitness_Evolution_Master").worksheet("workouts").append_row([
+                    wo_date.strftime('%d-%b-%y'), wo_type, ex_name, duration, sets, cals
+                ])
+                st.success("Output Logged")
                 st.cache_data.clear()
                 st.rerun()
 
 # ================== EMAIL DISPATCH ==================
 def send_email(image_data):
     if image_data is None:
-        st.warning("No data for dispatch.")
+        st.warning("No visual data for dispatch.")
         return
+        
     msg = MIMEMultipart("related")
     msg["From"] = st.secrets["email"]["sender_email"]
     msg["To"] = st.secrets["email"]["recipient_email"]
     msg["Subject"] = f"A.R.V.I.S. | DAILY REPORT | {datetime.now().strftime('%d %b')}"
-    body = f"""<body style="background-color: #050A0E; color: #00F2FF; font-family: monospace; padding: 20px;">
+
+    app_url = "https://fitness-evolution.streamlit.app" 
+    body = f"""
+    <body style="background-color: #050A0E; color: #00F2FF; font-family: monospace; padding: 20px;">
         <h2 style="border-bottom: 2px solid #00F2FF;">SYSTEM STATUS: NOMINAL</h2>
         <img src="cid:hud" style="width:100%; max-width:800px; border: 1px solid #1E3D52;">
         <div style="margin-top: 30px; text-align: center;">
-            <a href="https://fitness-evolution.streamlit.app" style="background-color: #00F2FF; color: #050A0E; padding: 18px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px;">OPEN INPUT TERMINAL</a>
-        </div></body>"""
+            <a href="{app_url}" style="background-color: #00F2FF; color: #050A0E; padding: 18px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px;">
+               OPEN INPUT TERMINAL
+            </a>
+        </div>
+    </body>
+    """
     msg.attach(MIMEText(body, "html"))
     img_part = MIMEImage(image_data)
     img_part.add_header("Content-ID", "<hud>")
     msg.attach(img_part)
+
     with smtplib.SMTP(st.secrets["email"]["smtp_server"], st.secrets["email"]["smtp_port"]) as server:
         server.starttls()
         server.login(st.secrets["email"]["sender_email"], st.secrets["email"]["app_password"])
         server.send_message(msg)
-    st.success("Report Dispatched.")
+    st.success("System: Report Dispatched.")
 
 with st.sidebar:
     st.divider()
