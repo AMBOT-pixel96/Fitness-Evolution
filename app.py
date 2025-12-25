@@ -80,13 +80,39 @@ df = macros_df.merge(workouts_agg, on="date", how="outer").merge(weights_df, on=
 df = df.sort_values("date")
 df["Net"] = df["calories"] - df["burned"]
 
-# ================== PHYSIOLOGY LOGIC ==================
-prof = profile_df.iloc[0]
-W = float(pd.to_numeric(df["weight"], errors='coerce').replace(0, np.nan).ffill().iloc[-1])
-maintenance = int((10*W + 6.25*float(prof["height_cm"]) - 5*int(prof["age"]) + 5) * 1.35)
-latest = df.iloc[-1]
-deficit_pct = round((maintenance - latest["Net"]) / maintenance * 100, 1)
-weekly_loss = round((abs(df.tail(7)["Net"].mean()) * 7) / 7700, 2)
+# ================== PHYSIOLOGY LOGIC (ROBUST) ==================
+# Default values in case the sheet is empty
+W, maintenance, deficit_pct, weekly_loss = 0.0, 0, 0.0, 0.0
+
+if not df.empty and "weight" in df.columns and len(df["weight"].dropna()) > 0:
+    try:
+        # Convert to numeric, handle zeros, and forward fill
+        weight_series = pd.to_numeric(df["weight"], errors='coerce').replace(0, np.nan).ffill()
+        
+        # Only grab iloc[-1] if there is actually data in the series
+        valid_weights = weight_series.dropna()
+        if not valid_weights.empty:
+            W = float(valid_weights.iloc[-1])
+            
+            # Maintenance Math
+            h_cm = float(prof["height_cm"])
+            age_val = int(prof["age"])
+            maintenance = int((10*W + 6.25*h_cm - 5*age_val + 5) * 1.35)
+            
+            # Latest Day Stats
+            latest = df.iloc[-1]
+            if maintenance > 0:
+                deficit_pct = round((maintenance - latest["Net"]) / maintenance * 100, 1)
+            
+            # Weekly Projection
+            recent_net = df.tail(7)["Net"]
+            if not recent_net.empty:
+                weekly_loss = round((abs(recent_net.mean()) * 7) / 7700, 2)
+    except Exception as e:
+        st.warning(f"Physiology Engine Idle: {e}")
+else:
+    st.info("⚡ System Online: Awaiting initial Biometric Sync via Input Terminal.")
+
 
 # ================== INPUT TERMINAL (SIDEBAR) ==================
 with st.sidebar:
