@@ -26,7 +26,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ================== DATA ENGINE ==================
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=60) # Reduced TTL for faster sync updates
 def load_sheet(tab):
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
@@ -34,7 +34,8 @@ def load_sheet(tab):
     sheet = client.open("Fitness_Evolution_Master").worksheet(tab)
     df = pd.DataFrame(sheet.get_all_records())
     if "date" in df.columns:
-        df["date"] = pd.to_datetime(df["date"], dayfirst=True)
+        # Standardize date parsing to handle '25-Dec-25'
+        df["date"] = pd.to_datetime(df["date"], format='mixed', dayfirst=True)
     return df
 
 # Fetch Data
@@ -49,7 +50,7 @@ for col in ["protein", "carbs", "fats"]:
 macros_df = macros_raw.groupby("date", as_index=False).agg({"protein": "sum", "carbs": "sum", "fats": "sum"})
 macros_df["calories"] = (macros_df["protein"] * 4 + macros_df["carbs"] * 4 + macros_df["fats"] * 9)
 
-# Process Workouts (Fallback Logic)
+# Process Workouts (Multi-entry aware)
 workouts_raw["calories"] = pd.to_numeric(workouts_raw["calories"], errors="coerce").fillna(0)
 today_date = pd.Timestamp.now().normalize()
 workouts_today = workouts_raw[workouts_raw['date'] == today_date].rename(columns={"calories": "burned"})
@@ -76,52 +77,75 @@ weekly_loss = round((abs(df.tail(7)["Net"].mean()) * 7) / 7700, 2)
 # ================== DATA LOGGING TERMINAL ==================
 with st.sidebar:
     st.title("📟 INPUT TERMINAL")
-    with st.form("daily_sync", clear_on_submit=True):
-        entry_date = st.date_input("Date", datetime.now())
-        weight_in = st.number_input("Weight (kg)", value=0.0, step=0.1)
-        
-        st.divider()
-        st.caption("FUEL INTAKE")
-        p = st.number_input("Prot", value=0, step=1)
-        c = st.number_input("Carb", value=0, step=1)
-        f = st.number_input("Fat", value=0, step=1)
-        
-        st.divider()
-        st.caption("PHYSICAL OUTPUT")
-        ex_type = st.selectbox("Type", ["Strength", "Cardio", "Static Cycle", "Sadhana"])
-        burn_val = st.number_input("Burn (kcal)", value=0, step=1)
-        
-        sync_btn = st.form_submit_button("🚀 SYNC TO CLOUD")
-        
-        if sync_btn:
-            creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], 
-                    scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
-            client = gspread.authorize(creds)
-            master = client.open("Fitness_Evolution_Master")
-            d_str = entry_date.strftime('%d/%m/%Y')
+    
+    with st.expander("⚖️ WEIGHT ENTRY", expanded=False):
+        with st.form("weight_form"):
+            w_date = st.date_input("Date", datetime.now(), key="w_d")
+            w_val = st.number_input("Weight (kg)", step=0.1)
+            if st.form_submit_button("LOG WEIGHT"):
+                creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
+                client = gspread.authorize(creds)
+                sheet = client.open("Fitness_Evolution_Master").worksheet("weights")
+                # Format: 25-Dec-25
+                sheet.append_row([w_date.strftime('%d-%b-%y'), w_val])
+                st.success("Weight Synced")
+                st.cache_data.clear()
+
+    with st.expander("🥗 MEAL ENTRY", expanded=False):
+        with st.form("macro_form"):
+            m_date = st.date_input("Date", datetime.now(), key="m_d")
+            m_name = st.text_input("Meal Name", "Breakfast")
+            mp = st.number_input("Protein", step=1)
+            mc = st.number_input("Carbs", step=1)
+            mf = st.number_input("Fats", step=1)
+            if st.form_submit_button("LOG MEAL"):
+                creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
+                client = gspread.authorize(creds)
+                sheet = client.open("Fitness_Evolution_Master").worksheet("macros")
+                sheet.append_row([m_date.strftime('%d-%b-%y'), m_name, mp, mc, mf])
+                st.success("Meal Synced")
+                st.cache_data.clear()
+
+    with st.expander("🏋️ WORKOUT ENTRY", expanded=True):
+        with st.form("workout_form"):
+            wo_date = st.date_input("Date", datetime.now(), key="wo_d")
+            wo_type = st.selectbox("Type", ["Strength", "Cardio", "Static Cycle"])
+            ex_name = st.text_input("Exercise Name")
             
-            if weight_in > 0: master.worksheet("weights").append_row([d_str, weight_in])
-            master.worksheet("macros").append_row([d_str, p, c, f])
-            if burn_val > 0: master.worksheet("workouts").append_row([d_str, ex_type, burn_val])
+            # Conditional Validation
+            if wo_type == "Strength":
+                sets = st.number_input("Sets", step=1, value=0)
+                duration = 0
+            else:
+                duration = st.number_input("Duration (mins)", step=1, value=0)
+                sets = 0
+                
+            cals = st.number_input("Calories Burned", step=1)
             
-            st.success("SYNC COMPLETE")
-            st.cache_data.clear()
-            st.rerun()
+            if st.form_submit_button("LOG WORKOUT"):
+                creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
+                client = gspread.authorize(creds)
+                sheet = client.open("Fitness_Evolution_Master").worksheet("workouts")
+                # Row Structure: date, workout_type, exercise, duration, sets, calories
+                sheet.append_row([wo_date.strftime('%d-%b-%y'), wo_type, ex_name, duration, sets, cals])
+                st.success("Workout Synced")
+                st.cache_data.clear()
+                st.rerun()
 
 # ================== RENDER HUD ==================
 st.title("⚡ FITNESS EVOLUTION MACHINE")
 
-metrics = {
+metrics_dict = {
     "weight": W, "maintenance": maintenance, "net": int(latest["Net"]),
     "deficit": deficit_pct, "keto": (latest["carbs"] <= 25), "weekly_loss": weekly_loss
 }
 
-img = render_summary(df, metrics, workouts_today)
+img = render_summary(df, metrics_dict, workouts_today)
 buf = io.BytesIO()
 img.save(buf, format="PNG")
 img_bytes = buf.getvalue()
 
-st.image(img, use_container_width=True)
+st.image(img, width='stretch') # Updated to latest Streamlit standard
 
 # ================== EMAIL SYSTEM ==================
 def send_email(image_data):
@@ -130,7 +154,6 @@ def send_email(image_data):
     msg["To"] = st.secrets["email"]["recipient_email"]
     msg["Subject"] = f"A.R.V.I.S. | DAILY REPORT | {datetime.now().strftime('%d %b')}"
 
-    # Note: Replace URL with your actual Streamlit Deployment URL
     app_url = "https://fitness-evolution.streamlit.app" 
     
     body = f"""
@@ -142,7 +165,6 @@ def send_email(image_data):
                OPEN INPUT TERMINAL
             </a>
         </div>
-        <p style="color: #A0B0B9; margin-top: 25px; font-size: 12px;">Machine: Online | Target: Genius</p>
     </body>
     """
     msg.attach(MIMEText(body, "html"))
