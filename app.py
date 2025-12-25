@@ -22,27 +22,41 @@ st.markdown("""
     .stMetric { border: 1px solid #1E3D52; background: #0A1926; padding: 20px; border-radius: 5px; }
     h1 { color: #00F2FF !important; font-family: 'Courier New', monospace; letter-spacing: 2px; }
     [data-testid="stSidebar"] { background-color: #050A0E; border-right: 1px solid #1E3D52; }
+    .stForm { background-color: rgba(0, 242, 255, 0.05); border: 1px solid #1E3D52; border-radius: 10px; }
 </style>
 """, unsafe_allow_html=True)
 
-# ================== DATA ENGINE ==================
-@st.cache_data(ttl=60) # Reduced TTL for faster sync updates
+# ================== DATA ENGINE (ROBUST VERSION) ==================
+@st.cache_data(ttl=60)
 def load_sheet(tab):
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
     client = gspread.authorize(creds)
     sheet = client.open("Fitness_Evolution_Master").worksheet(tab)
-    df = pd.DataFrame(sheet.get_all_records())
+    
+    # Brute-force reliable loading
+    raw_data = sheet.get_all_values()
+    if not raw_data:
+        return pd.DataFrame()
+        
+    df = pd.DataFrame(raw_data[1:], columns=raw_data[0])
+    df = df.replace(r'^\s*$', np.nan, regex=True)
+    
     if "date" in df.columns:
-        # Standardize date parsing to handle '25-Dec-25'
-        df["date"] = pd.to_datetime(df["date"], format='mixed', dayfirst=True)
+        # Standardize date parsing to handle multiple formats gracefully
+        df["date"] = pd.to_datetime(df["date"], format='mixed', dayfirst=True, errors='coerce')
+        df = df.dropna(subset=['date'])
     return df
 
 # Fetch Data
-weights_df = load_sheet("weights")
-macros_raw = load_sheet("macros")
-workouts_raw = load_sheet("workouts")
-profile_df = load_sheet("profile")
+try:
+    weights_df   = load_sheet("weights")
+    macros_raw   = load_sheet("macros")
+    workouts_raw = load_sheet("workouts")
+    profile_df   = load_sheet("profile")
+except Exception as e:
+    st.error(f"Sync Interrupted: Ensure Sheet headers match the protocol. Error: {e}")
+    st.stop()
 
 # Process Macros
 for col in ["protein", "carbs", "fats"]:
@@ -50,7 +64,7 @@ for col in ["protein", "carbs", "fats"]:
 macros_df = macros_raw.groupby("date", as_index=False).agg({"protein": "sum", "carbs": "sum", "fats": "sum"})
 macros_df["calories"] = (macros_df["protein"] * 4 + macros_df["carbs"] * 4 + macros_df["fats"] * 9)
 
-# Process Workouts (Multi-entry aware)
+# Process Workouts
 workouts_raw["calories"] = pd.to_numeric(workouts_raw["calories"], errors="coerce").fillna(0)
 today_date = pd.Timestamp.now().normalize()
 workouts_today = workouts_raw[workouts_raw['date'] == today_date].rename(columns={"calories": "burned"})
@@ -61,58 +75,58 @@ if workouts_today.empty:
 
 workouts_agg = workouts_raw.groupby("date", as_index=False).agg({"calories": "sum"}).rename(columns={"calories": "burned"})
 
-# Master DF
+# Master DF Merge
 df = macros_df.merge(workouts_agg, on="date", how="outer").merge(weights_df, on="date", how="left").fillna(0)
 df = df.sort_values("date")
 df["Net"] = df["calories"] - df["burned"]
 
-# ================== PHYSIOLOGY ==================
+# ================== PHYSIOLOGY LOGIC ==================
 prof = profile_df.iloc[0]
-W = float(df["weight"].replace(0, np.nan).ffill().iloc[-1])
+W = float(pd.to_numeric(df["weight"], errors='coerce').replace(0, np.nan).ffill().iloc[-1])
 maintenance = int((10*W + 6.25*float(prof["height_cm"]) - 5*int(prof["age"]) + 5) * 1.35)
 latest = df.iloc[-1]
 deficit_pct = round((maintenance - latest["Net"]) / maintenance * 100, 1)
 weekly_loss = round((abs(df.tail(7)["Net"].mean()) * 7) / 7700, 2)
 
-# ================== DATA LOGGING TERMINAL ==================
+# ================== INPUT TERMINAL (SIDEBAR) ==================
 with st.sidebar:
     st.title("📟 INPUT TERMINAL")
     
-    with st.expander("⚖️ WEIGHT ENTRY", expanded=False):
-        with st.form("weight_form"):
+    # 1. Weight Form
+    with st.expander("⚖️ WEIGHT UPLINK", expanded=False):
+        with st.form("weight_form", clear_on_submit=True):
             w_date = st.date_input("Date", datetime.now(), key="w_d")
-            w_val = st.number_input("Weight (kg)", step=0.1)
-            if st.form_submit_button("LOG WEIGHT"):
+            w_val = st.number_input("Weight (kg)", step=0.1, format="%.1f")
+            if st.form_submit_button("SYNC WEIGHT"):
                 creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
                 client = gspread.authorize(creds)
-                sheet = client.open("Fitness_Evolution_Master").worksheet("weights")
-                # Format: 25-Dec-25
-                sheet.append_row([w_date.strftime('%d-%b-%y'), w_val])
-                st.success("Weight Synced")
+                client.open("Fitness_Evolution_Master").worksheet("weights").append_row([w_date.strftime('%d-%b-%y'), w_val])
+                st.success("Weight Logged")
                 st.cache_data.clear()
 
-    with st.expander("🥗 MEAL ENTRY", expanded=False):
-        with st.form("macro_form"):
+    # 2. Meal Form
+    with st.expander("🥗 FUEL INTAKE", expanded=False):
+        with st.form("macro_form", clear_on_submit=True):
             m_date = st.date_input("Date", datetime.now(), key="m_d")
-            m_name = st.text_input("Meal Name", "Breakfast")
+            m_name = st.text_input("Meal Name", "Macro Session")
             mp = st.number_input("Protein", step=1)
             mc = st.number_input("Carbs", step=1)
             mf = st.number_input("Fats", step=1)
-            if st.form_submit_button("LOG MEAL"):
+            if st.form_submit_button("SYNC MEAL"):
                 creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
                 client = gspread.authorize(creds)
-                sheet = client.open("Fitness_Evolution_Master").worksheet("macros")
-                sheet.append_row([m_date.strftime('%d-%b-%y'), m_name, mp, mc, mf])
-                st.success("Meal Synced")
+                client.open("Fitness_Evolution_Master").worksheet("macros").append_row([m_date.strftime('%d-%b-%y'), m_name, mp, mc, mf])
+                st.success("Fuel Logged")
                 st.cache_data.clear()
 
-    with st.expander("🏋️ WORKOUT ENTRY", expanded=True):
-        with st.form("workout_form"):
+    # 3. Workout Form
+    with st.expander("🏋️ PHYSICAL OUTPUT", expanded=True):
+        with st.form("workout_form", clear_on_submit=True):
             wo_date = st.date_input("Date", datetime.now(), key="wo_d")
             wo_type = st.selectbox("Type", ["Strength", "Cardio", "Static Cycle"])
             ex_name = st.text_input("Exercise Name")
             
-            # Conditional Validation
+            # Conditional Validation logic
             if wo_type == "Strength":
                 sets = st.number_input("Sets", step=1, value=0)
                 duration = 0
@@ -122,30 +136,31 @@ with st.sidebar:
                 
             cals = st.number_input("Calories Burned", step=1)
             
-            if st.form_submit_button("LOG WORKOUT"):
+            if st.form_submit_button("SYNC WORKOUT"):
                 creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
                 client = gspread.authorize(creds)
-                sheet = client.open("Fitness_Evolution_Master").worksheet("workouts")
-                # Row Structure: date, workout_type, exercise, duration, sets, calories
-                sheet.append_row([wo_date.strftime('%d-%b-%y'), wo_type, ex_name, duration, sets, cals])
-                st.success("Workout Synced")
+                # date, workout_type, exercise, duration, sets, calories
+                client.open("Fitness_Evolution_Master").worksheet("workouts").append_row([
+                    wo_date.strftime('%d-%b-%y'), wo_type, ex_name, duration, sets, cals
+                ])
+                st.success("Output Logged")
                 st.cache_data.clear()
                 st.rerun()
 
 # ================== RENDER HUD ==================
 st.title("⚡ FITNESS EVOLUTION MACHINE")
 
-metrics_dict = {
+metrics_render = {
     "weight": W, "maintenance": maintenance, "net": int(latest["Net"]),
     "deficit": deficit_pct, "keto": (latest["carbs"] <= 25), "weekly_loss": weekly_loss
 }
 
-img = render_summary(df, metrics_dict, workouts_today)
+img = render_summary(df, metrics_render, workouts_today)
 buf = io.BytesIO()
 img.save(buf, format="PNG")
 img_bytes = buf.getvalue()
 
-st.image(img, width='stretch') # Updated to latest Streamlit standard
+st.image(img, use_container_width=True)
 
 # ================== EMAIL SYSTEM ==================
 def send_email(image_data):
@@ -177,9 +192,9 @@ def send_email(image_data):
         server.login(st.secrets["email"]["sender_email"], st.secrets["email"]["app_password"])
         server.send_message(msg)
 
-if st.button("📧 MANUAL DISPATCH"):
+if st.button("📧 DISPATCH DAILY REPORT"):
     send_email(img_bytes)
-    st.success("Report Sent.")
+    st.success("System: Report Dispatched to Inbox.")
 
 if os.getenv("AUTO_EMAIL") == "1":
     send_email(img_bytes)
