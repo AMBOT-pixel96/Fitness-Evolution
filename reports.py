@@ -36,6 +36,8 @@ def generate_pdf_report(df, metrics, start_date, end_date):
     start_dt = pd.to_datetime(start_date).normalize()
     end_dt = pd.to_datetime(end_date).normalize()
     
+    # Filter Data - Ensure df['date'] is datetime
+    df['date'] = pd.to_datetime(df['date'])
     mask = (df['date'].dt.normalize() >= start_dt) & (df['date'].dt.normalize() <= end_dt)
     report_df = df.loc[mask]
     
@@ -78,9 +80,9 @@ def generate_pdf_report(df, metrics, start_date, end_date):
             pdf.cell(w_brn, 8, f"{int(row.get('burned', 0))}", 1, 0, 'C')
             pdf.cell(w_net, 8, f"{int(row.get('Net', 0))}", 1, 1, 'C')
 
-    # --- CRITICAL FIX: MANUALLY RESET POSITION ---
-    pdf.ln(20) # Move down significantly
-    pdf.set_x(15) # HARD RESET to left margin
+    # Reset position to prevent horizontal space error
+    pdf.ln(20) 
+    pdf.set_x(15) 
     
     # --- ANALYTICS ---
     pdf.set_font('Helvetica', 'B', 14)
@@ -95,9 +97,9 @@ def generate_pdf_report(df, metrics, start_date, end_date):
     insight_2 = f"- PROJECTION: Current Rate of Change: {metrics['weekly_loss']} kg/week."
     insight_3 = f"- KETOSIS PROTOCOL: {'ACTIVE' if metrics['keto'] else 'INACTIVE (GLUCOSE DOMINANT)'}."
 
-    # Using explicit width of 180 to prevent 'No space' error
     pdf.multi_cell(180, 8, insight_1)
     pdf.multi_cell(180, 8, insight_2)
     pdf.multi_cell(180, 8, insight_3)
 
-    return pdf.output()
+    # THE FIX: Cast output to bytes explicitly for Streamlit compatibility
+    return bytes(pdf.output())
