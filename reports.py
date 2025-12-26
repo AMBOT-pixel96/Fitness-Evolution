@@ -3,103 +3,121 @@ import pandas as pd
 import io
 from datetime import datetime
 
-class BiometricReport(FPDF):
+class GeniusDossier(FPDF):
     def header(self):
-        # Full Page Dark Background
+        # Deep Black Canvas
         self.set_fill_color(5, 10, 14) 
         self.rect(0, 0, 210, 297, 'F')
         
-        # Header Text - Cyan Neon
-        self.set_font('Helvetica', 'B', 16)
-        self.set_text_color(0, 242, 255) 
-        self.set_xy(15, 15)
-        self.cell(0, 10, 'A.R.V.I.S. BIOMETRIC DOSSIER', 0, 1, 'L')
+        # Top-Right Branding
+        self.set_font('Courier', 'B', 8)
+        self.set_text_color(0, 242, 255)
+        self.set_xy(160, 10)
+        self.cell(40, 5, 'GENIUS PROTOCOL V4.0', 0, 1, 'R')
         
-        # Neon Divider
+        # Main Title
+        self.set_font('Helvetica', 'B', 24)
+        self.set_text_color(255, 255, 255)
+        self.set_xy(15, 20)
+        self.cell(0, 15, 'BIOMETRIC DOSSIER', 0, 1, 'L')
+        
+        # Sleek Underline
         self.set_draw_color(0, 242, 255)
-        self.set_line_width(0.5)
-        self.line(15, 25, 195, 25)
+        self.set_line_width(0.8)
+        self.line(15, 36, 60, 36)
         self.ln(15)
 
     def footer(self):
-        self.set_y(-15)
-        self.set_font('Helvetica', 'I', 8)
-        self.set_text_color(160, 176, 185)
-        self.cell(0, 10, f'Page {self.page_no()} | CONFIDENTIAL | ECCENTRIC GENIUS PROTOCOL', 0, 0, 'C')
+        self.set_y(-20)
+        self.set_font('Courier', 'B', 8)
+        self.set_text_color(50, 70, 80)
+        self.line(15, 280, 195, 280)
+        self.cell(0, 10, 'CLASSIFIED DATA | AUTHORIZED ACCESS ONLY | PHYSIQUE ASCENDING', 0, 0, 'L')
+        self.cell(0, 10, f'SECURE PAGE {self.page_no()}', 0, 0, 'R')
 
 def generate_pdf_report(df, metrics, start_date, end_date):
-    pdf = BiometricReport()
-    pdf.set_margins(15, 20, 15)
+    pdf = GeniusDossier()
+    pdf.set_margins(15, 25, 15)
     pdf.add_page()
     
-    # Date Reconciliation
     start_dt = pd.to_datetime(start_date).normalize()
     end_dt = pd.to_datetime(end_date).normalize()
-    
-    # Filter Data - Ensure df['date'] is datetime
-    df['date'] = pd.to_datetime(df['date'])
     mask = (df['date'].dt.normalize() >= start_dt) & (df['date'].dt.normalize() <= end_dt)
     report_df = df.loc[mask]
-    
-    # --- EXECUTIVE SUMMARY ---
-    pdf.set_font('Helvetica', 'B', 20)
-    pdf.set_text_color(255, 255, 255)
-    pdf.cell(0, 15, f"Analysis Period: {start_dt.strftime('%d %b %y')} - {end_dt.strftime('%d %b %y')}", 0, 1)
-    
-    pdf.set_font('Helvetica', '', 12)
-    pdf.set_text_color(160, 176, 185)
-    summary = (f"Current Mass: {metrics['weight']}kg. Maintenance: {metrics['maintenance']}kcal. "
-               f"Thermodynamic Status: {metrics['deficit']}% deficit.")
-    pdf.multi_cell(0, 8, summary)
-    pdf.ln(10)
 
-    # --- DATA GRID ---
-    pdf.set_fill_color(10, 25, 38) 
+    # --- TACTICAL OVERVIEW ---
+    pdf.set_y(45)
+    pdf.set_font('Helvetica', 'B', 12)
     pdf.set_text_color(0, 242, 255)
+    pdf.cell(0, 10, 'I. EXECUTIVE SUMMARY', 0, 1)
+    
+    # Summary Box
+    pdf.set_fill_color(15, 30, 45)
+    pdf.rect(15, 55, 180, 35, 'F')
+    pdf.set_xy(20, 58)
+    
     pdf.set_font('Helvetica', 'B', 10)
+    pdf.set_text_color(160, 176, 185)
+    pdf.cell(60, 8, 'CURRENT MASS:', 0, 0)
+    pdf.cell(60, 8, 'DAILY MAINTENANCE:', 0, 0)
+    pdf.cell(60, 8, 'WEEKLY PROJECTION:', 0, 1)
     
-    # Column Widths (Total 180mm)
-    w_date, w_wt, w_cal, w_brn, w_net = 35, 30, 35, 35, 45
-    
-    pdf.cell(w_date, 10, ' DATE', 1, 0, 'C', True)
-    pdf.cell(w_wt, 10, ' WEIGHT', 1, 0, 'C', True)
-    pdf.cell(w_cal, 10, ' CALS IN', 1, 0, 'C', True)
-    pdf.cell(w_brn, 10, ' BURNED', 1, 0, 'C', True)
-    pdf.cell(w_net, 10, ' NET DELTA', 1, 1, 'C', True)
-
-    pdf.set_font('Helvetica', '', 10)
+    pdf.set_xy(20, 68)
+    pdf.set_font('Helvetica', 'B', 18)
     pdf.set_text_color(255, 255, 255)
-    
-    if report_df.empty:
-        pdf.cell(180, 10, "DATABASE EMPTY FOR SELECTED PERIOD", 1, 1, 'C')
-    else:
-        for _, row in report_df.iterrows():
-            pdf.cell(w_date, 8, row['date'].strftime('%d-%b-%y'), 1, 0, 'C')
-            pdf.cell(w_wt, 8, f"{float(row.get('weight', 0)):.1f}", 1, 0, 'C')
-            pdf.cell(w_cal, 8, f"{int(row.get('calories', 0))}", 1, 0, 'C')
-            pdf.cell(w_brn, 8, f"{int(row.get('burned', 0))}", 1, 0, 'C')
-            pdf.cell(w_net, 8, f"{int(row.get('Net', 0))}", 1, 1, 'C')
+    pdf.cell(60, 10, f"{metrics['weight']} KG", 0, 0)
+    pdf.cell(60, 10, f"{metrics['maintenance']} KCAL", 0, 0)
+    pdf.set_text_color(57, 255, 20)
+    pdf.cell(60, 10, f"-{metrics['weekly_loss']} KG", 0, 1)
 
-    # Reset position to prevent horizontal space error
-    pdf.ln(20) 
-    pdf.set_x(15) 
-    
-    # --- ANALYTICS ---
-    pdf.set_font('Helvetica', 'B', 14)
+    # --- BIOMETRIC LOG ---
+    pdf.set_y(100)
+    pdf.set_font('Helvetica', 'B', 12)
     pdf.set_text_color(0, 242, 255)
-    pdf.cell(0, 10, "A.R.V.I.S. PREDICTIVE INSIGHTS", 0, 1)
+    pdf.cell(0, 10, 'II. BIOMETRIC LOG', 0, 1)
+    
+    # Minimalist Table Header
+    pdf.set_font('Courier', 'B', 9)
+    pdf.set_text_color(0, 242, 255)
+    cols = {'DATE': 35, 'WEIGHT': 30, 'CALS IN': 35, 'BURNED': 35, 'NET DELTA': 45}
+    for label, width in cols.items():
+        pdf.cell(width, 10, label, 'B', 0, 'C')
+    pdf.ln(12)
+
+    # Data Rows
+    pdf.set_font('Courier', '', 10)
+    pdf.set_text_color(255, 255, 255)
+    for _, row in report_df.iterrows():
+        pdf.cell(35, 8, row['date'].strftime('%d %b %y').upper(), 0, 0, 'C')
+        pdf.cell(30, 8, f"{float(row.get('weight', 0)):.1f}", 0, 0, 'C')
+        pdf.cell(35, 8, f"{int(row.get('calories', 0))}", 0, 0, 'C')
+        pdf.cell(35, 8, f"{int(row.get('burned', 0))}", 0, 0, 'C')
+        
+        net_val = int(row.get('Net', 0))
+        pdf.set_text_color(57, 255, 20) if net_val < 0 else pdf.set_text_color(255, 49, 49)
+        pdf.cell(45, 8, f"{net_val:+d}", 0, 1, 'C')
+        pdf.set_text_color(255, 255, 255)
+
+    # --- TACTICAL EVALUATION ---
+    pdf.ln(15)
+    pdf.set_font('Helvetica', 'B', 12)
+    pdf.set_text_color(0, 242, 255)
+    pdf.cell(0, 10, 'III. TACTICAL EVALUATION', 0, 1)
     
     pdf.set_font('Helvetica', '', 11)
-    pdf.set_text_color(255, 255, 255)
-    
     avg_net = report_df['Net'].mean() if not report_df.empty else 0
-    insight_1 = f"- METABOLIC STATUS: {'In Deficit' if avg_net < 0 else 'Surplus/Maintenance'}. Avg Net: {int(avg_net)} kcal/day."
-    insight_2 = f"- PROJECTION: Current Rate of Change: {metrics['weekly_loss']} kg/week."
-    insight_3 = f"- KETOSIS PROTOCOL: {'ACTIVE' if metrics['keto'] else 'INACTIVE (GLUCOSE DOMINANT)'}."
+    
+    # Insights with icons replaced by text-safe markers
+    evals = [
+        f"[EFFICIENCY] Avg Net: {int(avg_net)} kcal. {'Optimal fat-burning state.' if avg_net < 0 else 'Surplus detected.'}",
+        f"[PROJECTION] Current trajectory leads to target realization.",
+        f"[METABOLISM] Ketosis Protocol: {'ACTIVE' if metrics['keto'] else 'GLUCOSE DOMINANT'}.",
+        f"[BIO-STACK] Adherence to ECA/Berberine stack required for insulin sensitivity."
+    ]
+    
+    for eval in evals:
+        pdf.set_text_color(160, 176, 185)
+        pdf.multi_cell(0, 8, eval)
+        pdf.ln(2)
 
-    pdf.multi_cell(180, 8, insight_1)
-    pdf.multi_cell(180, 8, insight_2)
-    pdf.multi_cell(180, 8, insight_3)
-
-    # THE FIX: Cast output to bytes explicitly for Streamlit compatibility
     return bytes(pdf.output())
