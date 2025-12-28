@@ -24,8 +24,8 @@ def draw_glass_card(draw, x, y, w, h, title=""):
     draw.text((x+20, y-35), title.upper(), fill=CYAN, font=f_small)
 
 def render_summary(df, metrics, workouts_today):
-    # VERTICAL STACK CANVAS: 1080w x 2800h for ultimate breathing room
-    width, height = 1080, 2800 
+    # Expanded Height to 3000 to ensure the footer is NEVER cut off
+    width, height = 1080, 3000 
     img = Image.new("RGB", (width, height), BG_DARK)
     draw = ImageDraw.Draw(img)
     
@@ -36,29 +36,29 @@ def render_summary(df, metrics, workouts_today):
         f_day = ImageFont.truetype("DejaVuSans-Bold.ttf", 38)
     except: f_huge = f_mid = f_reg = f_day = ImageFont.load_default()
 
-    # --- HEADER ---
-    draw.rectangle([0, 0, width, 140], fill="#001F33")
-    draw.text((40, 45), "FITNESS EVOLUTION MACHINE", fill=CYAN, font=f_mid)
-    draw.text((width-320, 52), f"DAY {metrics['day_count']} OF 60", fill=CYAN, font=f_day) 
-    draw.line([0, 140, width, 140], fill=CYAN, width=5)
+    # --- FIXED HEADER (NO OVERLAP) ---
+    draw.rectangle([0, 0, width, 160], fill="#001F33") # Increased height
+    draw.text((40, 55), "FITNESS EVOLUTION MACHINE", fill=CYAN, font=f_mid)
+    
+    # Pushed "DAY X OF 60" to the right and ensured it has space
+    day_text = f"DAY {metrics['day_count']} OF 60"
+    draw.text((width - 350, 62), day_text, fill=CYAN, font=f_day) 
+    draw.line([0, 160, width, 160], fill=CYAN, width=5)
 
     # --- PRIMARY BIO-METRICS ---
-    draw.text((60, 180), "CURRENT MASS INDEX", fill=TEXT_GREY, font=f_reg)
-    draw.text((60, 230), f"{metrics['weight']}", fill="#FFFFFF", font=f_huge)
-    draw.text((480, 300), "KG", fill=CYAN, font=f_mid)
-    draw.text((60, 380), f"PREDICTED TREND: {metrics.get('weekly_loss', 0)} KG / WEEK", fill=NEON_GREEN, font=f_reg)
+    draw.text((60, 200), "CURRENT MASS INDEX", fill=TEXT_GREY, font=f_reg)
+    draw.text((60, 250), f"{metrics['weight']}", fill="#FFFFFF", font=f_huge)
+    draw.text((480, 320), "KG", fill=CYAN, font=f_mid)
+    draw.text((60, 400), f"PREDICTED TREND: {metrics.get('weekly_loss', 0)} KG / WEEK", fill=NEON_GREEN, font=f_reg)
 
     # VERTICAL LAYOUT CONFIG
     card_x, card_w = 60, 960
     card_h = 500
-    spacing = 80
-    current_y = 480
+    spacing = 100 # Increased spacing
+    current_y = 550 # Started much lower to avoid header collision
 
-    # ---------------------------------------------------------
-    # 1. THERMODYNAMICS (WIDE MACRO DONUT)
-    # ---------------------------------------------------------
+    # 1. THERMODYNAMICS
     draw_glass_card(draw, card_x, current_y, card_w, card_h, "Thermodynamics")
-    
     latest = df.iloc[-1]
     p, c, f = latest.get('protein', 0), latest.get('carbs', 0), latest.get('fats', 0)
     total_in = int(latest.get('calories', 0))
@@ -73,24 +73,19 @@ def render_summary(df, metrics, workouts_today):
         donut_img = Image.open(buf).resize((320, 320))
         img.paste(donut_img, (100, current_y + 60), donut_img)
         
-        # Macro Detail Table inside the card
         draw.text((500, current_y + 100), f"PROTEIN: {int(p)}g", fill=CYAN, font=f_day)
         draw.text((500, current_y + 170), f"CARBS:   {int(c)}g", fill=GOLD, font=f_day)
         draw.text((500, current_y + 240), f"FATS:    {int(f)}g", fill=NEON_RED, font=f_day)
 
-    # Standard Footer
     draw.rectangle([card_x, current_y + card_h - 70, card_x + card_w, current_y + card_h], fill=FOOTER_GREY)
     draw.text((card_x + 30, current_y + card_h - 55), f"TOTAL INTAKE: {total_in} KCAL", fill=CYAN, font=f_day)
 
     current_y += card_h + spacing
 
-    # ---------------------------------------------------------
-    # 2. BIO-CHEMICAL STACK (WIDE LIST)
-    # ---------------------------------------------------------
+    # 2. BIO-CHEMICAL STACK
     draw_glass_card(draw, card_x, current_y, card_w, card_h, "Bio-Chemical Stack")
     keto_col = NEON_GREEN if metrics['keto'] else NEON_RED
     draw.text((card_x + 40, current_y + 40), f"KETOSIS: {'ACTIVE' if metrics['keto'] else 'OFF'}", fill=keto_col, font=f_day)
-    
     supps = ["ECA Stack", "Berberine", "MCT Oil", "Chromium", "Gymnema", "R-ALA", "Mg Glycinate"]
     for i, s in enumerate(supps):
         row, col = i % 2, i // 2
@@ -98,29 +93,22 @@ def render_summary(df, metrics, workouts_today):
 
     current_y += card_h + spacing
 
-    # ---------------------------------------------------------
-    # 3. PHYSICAL OUTPUT (FIXED Y-LABELS)
-    # ---------------------------------------------------------
+    # 3. PHYSICAL OUTPUT
     draw_glass_card(draw, card_x, current_y, card_w, card_h, "Physical Output")
     total_burned = 0
     if not workouts_today.empty:
         total_burned = int(workouts_today['burned'].sum())
         ex_data = workouts_today.groupby('exercise')['burned'].sum().sort_values()
-        
         plt.style.use('dark_background')
         fig, ax = plt.subplots(figsize=(8, 3.5), facecolor=CARD_BG)
         bars = ax.barh(ex_data.index, ex_data.values, color=CYAN, height=0.6)
-        
         ax.set_facecolor(CARD_BG)
-        # ENABLING Y-LABELS
         ax.tick_params(axis='y', colors=TEXT_GREY, labelsize=14)
         ax.tick_params(axis='x', colors='none')
         for spine in ['top', 'right', 'bottom', 'left']: ax.spines[spine].set_visible(False)
-        
         for bar in bars:
             ax.text(bar.get_width() + 10, bar.get_y() + bar.get_height()/2, f'{int(bar.get_width())} KCAL', 
                     va='center', ha='left', color=NEON_GREEN, fontsize=12, fontweight='bold')
-        
         plt.tight_layout()
         buf = io.BytesIO()
         fig.savefig(buf, format='png', transparent=True, dpi=130)
@@ -128,15 +116,12 @@ def render_summary(df, metrics, workouts_today):
         chart_img = Image.open(buf).resize((900, 330))
         img.paste(chart_img, (card_x + 20, current_y + 50), chart_img)
 
-    # Footer
     draw.rectangle([card_x, current_y + card_h - 70, card_x + card_w, current_y + card_h], fill=FOOTER_GREY)
     draw.text((card_x + 30, current_y + card_h - 55), f"TOTAL BURNED: {total_burned} KCAL", fill=NEON_GREEN, font=f_day)
 
     current_y += card_h + spacing
 
-    # ---------------------------------------------------------
-    # 4. TREND GRAPH (ULTRA-WIDE)
-    # ---------------------------------------------------------
+    # 4. TREND GRAPH
     fig, ax = plt.subplots(figsize=(10, 4.5), facecolor=BG_DARK)
     recent = df.sort_values('date').tail(14)
     weights = pd.to_numeric(recent["weight"], errors='coerce').ffill().fillna(metrics['weight'])
@@ -146,14 +131,14 @@ def render_summary(df, metrics, workouts_today):
     ax.grid(color='#1E3D52', linestyle='--', alpha=0.4)
     plt.xticks(rotation=25, color=TEXT_GREY, fontsize=12)
     plt.yticks(color=TEXT_GREY, fontsize=12)
-    
     buf = io.BytesIO()
     fig.savefig(buf, format='png', facecolor=BG_DARK)
     plt.close(fig)
     img.paste(Image.open(buf).resize((980, 500)), (50, current_y))
 
-    # Motivation Signature
+    # --- FINAL FOOTER (PREVENTS CUT OFF) ---
+    footer_y = current_y + 600
     sig_text = "PHYSIQUE: ASCENDING | FAT CELLS: TERMINATED"
-    draw.text((width//2 - 400, height - 100), sig_text, fill=CYAN, font=f_mid)
+    draw.text((width//2 - 400, footer_y), sig_text, fill=CYAN, font=f_mid)
     
     return img
