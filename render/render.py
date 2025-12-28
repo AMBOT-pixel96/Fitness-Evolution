@@ -5,7 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 
-# --- STARK LUXURY THEME ---
+# --- THEME CONSTANTS ---
 CYAN = "#00F2FF"
 BG_DARK = "#050A0E"
 NEON_GREEN = "#39FF14"
@@ -21,10 +21,12 @@ def draw_glass_card(draw, x, y, w, h, title=""):
     try:
         f_small = ImageFont.truetype("DejaVuSans-Bold.ttf", 26)
     except: f_small = ImageFont.load_default()
-    draw.text((x+20, y-35), title.upper(), fill=CYAN, font=f_small)
+    # Pushed title slightly higher to avoid internal card overlap
+    draw.text((x+20, y-40), title.upper(), fill=CYAN, font=f_small)
 
 def render_summary(df, metrics, workouts_today):
-    width, height = 1080, 3100 # Tightened slightly
+    # CRITICAL: Increased height to 3500px to prevent ALL cut-offs
+    width, height = 1080, 3500 
     img = Image.new("RGB", (width, height), BG_DARK)
     draw = ImageDraw.Draw(img)
     
@@ -35,22 +37,23 @@ def render_summary(df, metrics, workouts_today):
         f_day = ImageFont.truetype("DejaVuSans-Bold.ttf", 38)
     except: f_huge = f_mid = f_reg = f_day = ImageFont.load_default()
 
-    # --- HEADER ---
-    draw.rectangle([0, 0, width, 180], fill="#001F33") 
-    draw.text((40, 40), "FITNESS EVOLUTION MACHINE", fill=CYAN, font=f_mid)
-    draw.text((40, 110), f"DAY {metrics['day_count']} OF 60", fill=CYAN, font=f_day) 
-    draw.line([0, 180, width, 180], fill=CYAN, width=5)
+    # --- 1. HEADER (DEEP BUFFER) ---
+    draw.rectangle([0, 0, width, 220], fill="#001F33") 
+    draw.text((40, 50), "FITNESS EVOLUTION MACHINE", fill=CYAN, font=f_mid)
+    draw.text((40, 130), f"DAY {metrics['day_count']} OF 60", fill=CYAN, font=f_day) 
+    draw.line([0, 220, width, 220], fill=CYAN, width=6)
 
-    # --- PRIMARY MASS ---
-    draw.text((60, 230), "CURRENT MASS INDEX", fill=TEXT_GREY, font=f_reg)
-    draw.text((60, 280), f"{metrics['weight']}", fill="#FFFFFF", font=f_huge)
-    draw.text((480, 350), "KG", fill=CYAN, font=f_mid)
-    draw.text((60, 430), f"PREDICTED TREND: {metrics.get('weekly_loss', 0)} KG / WEEK", fill=NEON_GREEN, font=f_reg)
+    # --- 2. PRIMARY MASS (ANCHORED) ---
+    draw.text((60, 280), "CURRENT MASS INDEX", fill=TEXT_GREY, font=f_reg)
+    draw.text((60, 330), f"{metrics['weight']}", fill="#FFFFFF", font=f_huge)
+    draw.text((480, 400), "KG", fill=CYAN, font=f_mid)
+    draw.text((60, 480), f"PREDICTED TREND: {metrics.get('weekly_loss', 0)} KG / WEEK", fill=NEON_GREEN, font=f_reg)
 
-    current_y = 600
-    card_x, card_w, card_h, spacing = 60, 960, 500, 120
+    # Vertical Layout: Starting cards much lower to clear mass index
+    current_y = 650
+    card_x, card_w, card_h, spacing = 60, 960, 500, 150
 
-    # 1. Thermodynamics
+    # --- 3. THERMODYNAMICS ---
     draw_glass_card(draw, card_x, current_y, card_w, card_h, "Thermodynamics")
     latest = df.iloc[-1]
     p, c, f = latest.get('protein', 0), latest.get('carbs', 0), latest.get('fats', 0)
@@ -71,7 +74,7 @@ def render_summary(df, metrics, workouts_today):
 
     current_y += card_h + spacing
 
-    # 2. Bio-Chemical Stack
+    # --- 4. BIO-CHEMICAL STACK ---
     draw_glass_card(draw, card_x, current_y, card_w, card_h, "Bio-Chemical Stack")
     draw.text((card_x + 40, current_y + 40), f"KETOSIS: {'ACTIVE' if metrics['keto'] else 'OFF'}", fill=(NEON_GREEN if metrics['keto'] else NEON_RED), font=f_day)
     supps = ["ECA Stack", "Berberine", "MCT Oil", "Chromium", "Gymnema", "R-ALA", "Mg Glycinate"]
@@ -81,7 +84,7 @@ def render_summary(df, metrics, workouts_today):
 
     current_y += card_h + spacing
 
-    # 3. Physical Output
+    # --- 5. PHYSICAL OUTPUT ---
     draw_glass_card(draw, card_x, current_y, card_w, card_h, "Physical Output")
     total_burned = int(workouts_today['burned'].sum()) if not workouts_today.empty else 0
     if not workouts_today.empty:
@@ -102,8 +105,8 @@ def render_summary(df, metrics, workouts_today):
 
     current_y += card_h + spacing
 
-    # 4. Weight Trend (14D) - FIXED TITLE & POSITION
-    fig, ax = plt.subplots(figsize=(10, 4.5), facecolor=BG_DARK)
+    # --- 6. WEIGHT TREND (14D) ---
+    fig, ax = plt.subplots(figsize=(10, 5), facecolor=BG_DARK)
     recent = df.sort_values('date').tail(14)
     weights = pd.to_numeric(recent["weight"], errors='coerce').ffill().fillna(metrics['weight'])
     ax.plot(recent["date"], weights, color=CYAN, linewidth=5, marker='o', mfc=BG_DARK, markersize=12)
@@ -113,12 +116,11 @@ def render_summary(df, metrics, workouts_today):
     last_idx = len(weights) - 1
     ax.annotate(f"{weights.iloc[last_idx]} KG", 
                 (recent["date"].iloc[last_idx], weights.iloc[last_idx]), 
-                textcoords="offset points", xytext=(0,25), ha='center', 
+                textcoords="offset points", xytext=(0,30), ha='center', 
                 color='#FFFFFF', weight='bold', fontsize=12,
                 bbox=dict(boxstyle='round,pad=0.3', fc=BG_DARK, ec=CYAN, lw=1))
 
-    # REWORDED TITLE: Smaller font to fit bounds
-    ax.set_title("WEIGHT TREND (14D)", color=CYAN, fontweight='bold', fontsize=16, pad=35)
+    ax.set_title("WEIGHT TREND (14D)", color=CYAN, fontweight='bold', fontsize=18, pad=40)
     plt.xticks(rotation=25, color=TEXT_GREY)
     plt.yticks(color=TEXT_GREY)
     ax.grid(color='#1E3D52', linestyle='--', alpha=0.4)
@@ -126,15 +128,15 @@ def render_summary(df, metrics, workouts_today):
     buf = io.BytesIO()
     fig.savefig(buf, format='png', facecolor=BG_DARK)
     plt.close(fig)
-    img.paste(Image.open(buf).resize((980, 500)), (50, current_y + 50))
+    img.paste(Image.open(buf).resize((980, 550)), (50, current_y + 50))
 
-    # --- FINAL DYNAMIC FOOTER ---
-    # Formula: (1 - (Net / Maintenance)) * 100
+    # --- 7. DYNAMIC FOOTER (THE ULTIMATE BUFFER) ---
     maint = metrics.get('maintenance', 3000)
     net_cals = total_in - total_burned
     deficit_perc = int((1 - (net_cals / maint)) * 100)
     
+    # We move the footer text to 3300px, leaving 200px of pure black runway
     footer_text = f"THERMODYNAMIC STATUS: {deficit_perc}% DEFICIT"
-    draw.text((width//2 - 380, height - 150), footer_text, fill=NEON_GREEN, font=f_mid)
+    draw.text((width//2 - 380, height - 200), footer_text, fill=NEON_GREEN, font=f_mid)
     
     return img
