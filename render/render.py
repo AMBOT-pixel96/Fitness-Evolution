@@ -24,13 +24,12 @@ def draw_glass_card(draw, x, y, w, h, title=""):
     draw.text((x+20, y-35), title.upper(), fill=CYAN, font=f_small)
 
 def render_summary(df, metrics, workouts_today):
-    # Lock height at 3200px
-    width, height = 1080, 3200 
+    width, height = 1080, 3100 # Tightened slightly
     img = Image.new("RGB", (width, height), BG_DARK)
     draw = ImageDraw.Draw(img)
     
     try:
-        f_huge = ImageFont.truetype("DejaVuSans-Bold.ttf", 120)
+        f_huge = ImageFont.truetype("DejaVuSans-Bold.ttf", 110)
         f_mid = ImageFont.truetype("DejaVuSans-Bold.ttf", 55)
         f_reg = ImageFont.truetype("DejaVuSans.ttf", 32)
         f_day = ImageFont.truetype("DejaVuSans-Bold.ttf", 38)
@@ -48,8 +47,8 @@ def render_summary(df, metrics, workouts_today):
     draw.text((480, 350), "KG", fill=CYAN, font=f_mid)
     draw.text((60, 430), f"PREDICTED TREND: {metrics.get('weekly_loss', 0)} KG / WEEK", fill=NEON_GREEN, font=f_reg)
 
-    card_x, card_w, card_h, spacing = 60, 960, 500, 120
     current_y = 600
+    card_x, card_w, card_h, spacing = 60, 960, 500, 120
 
     # 1. Thermodynamics
     draw_glass_card(draw, card_x, current_y, card_w, card_h, "Thermodynamics")
@@ -103,33 +102,39 @@ def render_summary(df, metrics, workouts_today):
 
     current_y += card_h + spacing
 
-    # 4. Trend Graph (FIXED LABEL)
+    # 4. Weight Trend (14D) - FIXED TITLE & POSITION
     fig, ax = plt.subplots(figsize=(10, 4.5), facecolor=BG_DARK)
     recent = df.sort_values('date').tail(14)
     weights = pd.to_numeric(recent["weight"], errors='coerce').ffill().fillna(metrics['weight'])
     ax.plot(recent["date"], weights, color=CYAN, linewidth=5, marker='o', mfc=BG_DARK, markersize=12)
     ax.fill_between(recent["date"], weights, weights.min()-0.5, color=CYAN, alpha=0.1)
     
-    # FORCED LABEL ON LATEST POINT
+    # Latest Point Label
     last_idx = len(weights) - 1
     ax.annotate(f"{weights.iloc[last_idx]} KG", 
                 (recent["date"].iloc[last_idx], weights.iloc[last_idx]), 
-                textcoords="offset points", xytext=(0,20), ha='center', 
-                color='#FFFFFF', weight='bold', fontsize=14,
+                textcoords="offset points", xytext=(0,25), ha='center', 
+                color='#FFFFFF', weight='bold', fontsize=12,
                 bbox=dict(boxstyle='round,pad=0.3', fc=BG_DARK, ec=CYAN, lw=1))
 
-    ax.set_title("MASS PROGRESSION (14-DAY WINDOW)", color=CYAN, fontweight='bold', fontsize=18, pad=30)
+    # REWORDED TITLE: Smaller font to fit bounds
+    ax.set_title("WEIGHT TREND (14D)", color=CYAN, fontweight='bold', fontsize=16, pad=35)
     plt.xticks(rotation=25, color=TEXT_GREY)
     plt.yticks(color=TEXT_GREY)
     ax.grid(color='#1E3D52', linestyle='--', alpha=0.4)
+    
     buf = io.BytesIO()
     fig.savefig(buf, format='png', facecolor=BG_DARK)
     plt.close(fig)
-    img.paste(Image.open(buf).resize((980, 500)), (50, current_y))
+    img.paste(Image.open(buf).resize((980, 500)), (50, current_y + 50))
 
-    # --- FOOTER ANCHOR ---
-    footer_text = "PHYSIQUE: ASCENDING | FAT CELLS: TERMINATED"
-    # Anchor text 150px from the absolute bottom of 3200px
-    draw.text((width//2 - 200, height - 100), footer_text, fill=CYAN, font=f_mid)
+    # --- FINAL DYNAMIC FOOTER ---
+    # Formula: (1 - (Net / Maintenance)) * 100
+    maint = metrics.get('maintenance', 3000)
+    net_cals = total_in - total_burned
+    deficit_perc = int((1 - (net_cals / maint)) * 100)
+    
+    footer_text = f"THERMODYNAMIC STATUS: {deficit_perc}% DEFICIT"
+    draw.text((width//2 - 380, height - 150), footer_text, fill=NEON_GREEN, font=f_mid)
     
     return img
