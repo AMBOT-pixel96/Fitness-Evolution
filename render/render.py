@@ -136,6 +136,6 @@ def render_summary(df, metrics, workouts_today):
     
     # Explicitly placed within the 2800px limit
     footer_text = f"Deficit: {deficit_perc}% "
-    draw.text((width//2 - 350, height - 120), footer_text, fill=NEON_GREEN, font=f_small)
+    draw.text((width//2 - 350, height - 120), footer_text, fill=NEON_GREEN, font=f_mid)
     
     return img
