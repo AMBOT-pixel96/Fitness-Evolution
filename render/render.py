@@ -24,7 +24,7 @@ def draw_glass_card(draw, x, y, w, h, title=""):
     draw.text((x+20, y-35), title.upper(), fill=CYAN, font=f_small)
 
 def render_summary(df, metrics, workouts_today):
-    # Standardize on 3200px to ensure footer is NEVER cut off
+    # Lock height at 3200px
     width, height = 1080, 3200 
     img = Image.new("RGB", (width, height), BG_DARK)
     draw = ImageDraw.Draw(img)
@@ -36,33 +36,26 @@ def render_summary(df, metrics, workouts_today):
         f_day = ImageFont.truetype("DejaVuSans-Bold.ttf", 38)
     except: f_huge = f_mid = f_reg = f_day = ImageFont.load_default()
 
-    # --- FIXED HEADER (NO OVERLAP) ---
+    # --- HEADER ---
     draw.rectangle([0, 0, width, 180], fill="#001F33") 
     draw.text((40, 40), "FITNESS EVOLUTION MACHINE", fill=CYAN, font=f_mid)
-    
-    # Position "DAY X OF 60" clearly below the title line but within header
-    day_text = f"DAY {metrics['day_count']} OF 60"
-    draw.text((40, 110), day_text, fill=CYAN, font=f_day) 
+    draw.text((40, 110), f"DAY {metrics['day_count']} OF 60", fill=CYAN, font=f_day) 
     draw.line([0, 180, width, 180], fill=CYAN, width=5)
 
-    # --- PRIMARY BIO-METRICS ---
+    # --- PRIMARY MASS ---
     draw.text((60, 230), "CURRENT MASS INDEX", fill=TEXT_GREY, font=f_reg)
     draw.text((60, 280), f"{metrics['weight']}", fill="#FFFFFF", font=f_huge)
     draw.text((480, 350), "KG", fill=CYAN, font=f_mid)
     draw.text((60, 430), f"PREDICTED TREND: {metrics.get('weekly_loss', 0)} KG / WEEK", fill=NEON_GREEN, font=f_reg)
 
-    # VERTICAL LAYOUT CONFIG
-    card_x, card_w = 60, 960
-    card_h = 500
-    spacing = 120 
-    current_y = 600 # Start well below header/metrics
+    card_x, card_w, card_h, spacing = 60, 960, 500, 120
+    current_y = 600
 
-    # 1. THERMODYNAMICS (WIDE MACRO DONUT)
+    # 1. Thermodynamics
     draw_glass_card(draw, card_x, current_y, card_w, card_h, "Thermodynamics")
     latest = df.iloc[-1]
     p, c, f = latest.get('protein', 0), latest.get('carbs', 0), latest.get('fats', 0)
     total_in = int(latest.get('calories', 0))
-
     if total_in > 0:
         plt.style.use('dark_background')
         fig, ax = plt.subplots(figsize=(4, 4), facecolor=CARD_BG)
@@ -70,22 +63,18 @@ def render_summary(df, metrics, workouts_today):
         buf = io.BytesIO()
         fig.savefig(buf, format='png', transparent=True, dpi=120)
         plt.close(fig)
-        donut_img = Image.open(buf).resize((320, 320))
-        img.paste(donut_img, (100, current_y + 60), donut_img)
-        
+        img.paste(Image.open(buf).resize((320, 320)), (100, current_y + 60), Image.open(buf).resize((320, 320)))
         draw.text((500, current_y + 100), f"PROTEIN: {int(p)}g", fill=CYAN, font=f_day)
         draw.text((500, current_y + 170), f"CARBS:   {int(c)}g", fill=GOLD, font=f_day)
         draw.text((500, current_y + 240), f"FATS:    {int(f)}g", fill=NEON_RED, font=f_day)
-
     draw.rectangle([card_x, current_y + card_h - 70, card_x + card_w, current_y + card_h], fill=FOOTER_GREY)
     draw.text((card_x + 30, current_y + card_h - 55), f"TOTAL INTAKE: {total_in} KCAL", fill=CYAN, font=f_day)
 
     current_y += card_h + spacing
 
-    # 2. BIO-CHEMICAL STACK
+    # 2. Bio-Chemical Stack
     draw_glass_card(draw, card_x, current_y, card_w, card_h, "Bio-Chemical Stack")
-    keto_col = NEON_GREEN if metrics['keto'] else NEON_RED
-    draw.text((card_x + 40, current_y + 40), f"KETOSIS: {'ACTIVE' if metrics['keto'] else 'OFF'}", fill=keto_col, font=f_day)
+    draw.text((card_x + 40, current_y + 40), f"KETOSIS: {'ACTIVE' if metrics['keto'] else 'OFF'}", fill=(NEON_GREEN if metrics['keto'] else NEON_RED), font=f_day)
     supps = ["ECA Stack", "Berberine", "MCT Oil", "Chromium", "Gymnema", "R-ALA", "Mg Glycinate"]
     for i, s in enumerate(supps):
         row, col = i % 2, i // 2
@@ -93,52 +82,54 @@ def render_summary(df, metrics, workouts_today):
 
     current_y += card_h + spacing
 
-    # 3. PHYSICAL OUTPUT
+    # 3. Physical Output
     draw_glass_card(draw, card_x, current_y, card_w, card_h, "Physical Output")
-    total_burned = 0
+    total_burned = int(workouts_today['burned'].sum()) if not workouts_today.empty else 0
     if not workouts_today.empty:
-        total_burned = int(workouts_today['burned'].sum())
         ex_data = workouts_today.groupby('exercise')['burned'].sum().sort_values()
-        plt.style.use('dark_background')
         fig, ax = plt.subplots(figsize=(8, 3.5), facecolor=CARD_BG)
         bars = ax.barh(ex_data.index, ex_data.values, color=CYAN, height=0.6)
-        ax.set_facecolor(CARD_BG)
         ax.tick_params(axis='y', colors=TEXT_GREY, labelsize=14)
-        ax.tick_params(axis='x', colors='none')
-        for spine in ['top', 'right', 'bottom', 'left']: ax.spines[spine].set_visible(False)
+        ax.set_frame_on(False)
+        ax.get_xaxis().set_visible(False)
         for bar in bars:
-            ax.text(bar.get_width() + 10, bar.get_y() + bar.get_height()/2, f'{int(bar.get_width())} KCAL', 
-                    va='center', ha='left', color=NEON_GREEN, fontsize=12, fontweight='bold')
-        plt.tight_layout()
+            ax.text(bar.get_width() + 10, bar.get_y() + bar.get_height()/2, f'{int(bar.get_width())} KCAL', va='center', ha='left', color=NEON_GREEN, fontsize=12, fontweight='bold')
         buf = io.BytesIO()
         fig.savefig(buf, format='png', transparent=True, dpi=130)
         plt.close(fig)
-        chart_img = Image.open(buf).resize((900, 330))
-        img.paste(chart_img, (card_x + 20, current_y + 50), chart_img)
-
+        img.paste(Image.open(buf).resize((900, 330)), (card_x + 20, current_y + 50), Image.open(buf).resize((900, 330)))
     draw.rectangle([card_x, current_y + card_h - 70, card_x + card_w, current_y + card_h], fill=FOOTER_GREY)
     draw.text((card_x + 30, current_y + card_h - 55), f"TOTAL BURNED: {total_burned} KCAL", fill=NEON_GREEN, font=f_day)
 
     current_y += card_h + spacing
 
-    # 4. TREND GRAPH
+    # 4. Trend Graph (FIXED LABEL)
     fig, ax = plt.subplots(figsize=(10, 4.5), facecolor=BG_DARK)
     recent = df.sort_values('date').tail(14)
     weights = pd.to_numeric(recent["weight"], errors='coerce').ffill().fillna(metrics['weight'])
     ax.plot(recent["date"], weights, color=CYAN, linewidth=5, marker='o', mfc=BG_DARK, markersize=12)
     ax.fill_between(recent["date"], weights, weights.min()-0.5, color=CYAN, alpha=0.1)
+    
+    # FORCED LABEL ON LATEST POINT
+    last_idx = len(weights) - 1
+    ax.annotate(f"{weights.iloc[last_idx]} KG", 
+                (recent["date"].iloc[last_idx], weights.iloc[last_idx]), 
+                textcoords="offset points", xytext=(0,20), ha='center', 
+                color='#FFFFFF', weight='bold', fontsize=14,
+                bbox=dict(boxstyle='round,pad=0.3', fc=BG_DARK, ec=CYAN, lw=1))
+
     ax.set_title("MASS PROGRESSION (14-DAY WINDOW)", color=CYAN, fontweight='bold', fontsize=18, pad=30)
+    plt.xticks(rotation=25, color=TEXT_GREY)
+    plt.yticks(color=TEXT_GREY)
     ax.grid(color='#1E3D52', linestyle='--', alpha=0.4)
-    plt.xticks(rotation=25, color=TEXT_GREY, fontsize=12)
-    plt.yticks(color=TEXT_GREY, fontsize=12)
     buf = io.BytesIO()
     fig.savefig(buf, format='png', facecolor=BG_DARK)
     plt.close(fig)
     img.paste(Image.open(buf).resize((980, 500)), (50, current_y))
 
-    # --- FINAL FOOTER: NO OVERLAP ---
-    # We place the signature exactly at the bottom of the 3200px canvas
+    # --- FOOTER ANCHOR ---
     footer_text = "PHYSIQUE: ASCENDING | FAT CELLS: TERMINATED"
-    draw.text((width//2 - 400, height - 120), footer_text, fill=CYAN, font=f_mid)
+    # Anchor text 150px from the absolute bottom of 3200px
+    draw.text((width//2 - 400, height - 150), footer_text, fill=CYAN, font=f_mid)
     
     return img
