@@ -130,6 +130,6 @@ def render_summary(df, metrics, workouts_today):
     # --- FOOTER ANCHOR ---
     footer_text = "PHYSIQUE: ASCENDING | FAT CELLS: TERMINATED"
     # Anchor text 150px from the absolute bottom of 3200px
-    draw.text((width//2 - 400, height - 150), footer_text, fill=CYAN, font=f_mid)
+    draw.text((width//2 - 200, height - 100), footer_text, fill=CYAN, font=f_mid)
     
     return img
