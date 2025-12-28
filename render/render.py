@@ -24,8 +24,8 @@ def draw_glass_card(draw, x, y, w, h, title=""):
     draw.text((x+20, y-35), title.upper(), fill=CYAN, font=f_small)
 
 def render_summary(df, metrics, workouts_today):
-    # Expanded Height to 3000 to ensure the footer is NEVER cut off
-    width, height = 1080, 3000 
+    # Standardize on 3200px to ensure footer is NEVER cut off
+    width, height = 1080, 3200 
     img = Image.new("RGB", (width, height), BG_DARK)
     draw = ImageDraw.Draw(img)
     
@@ -37,27 +37,27 @@ def render_summary(df, metrics, workouts_today):
     except: f_huge = f_mid = f_reg = f_day = ImageFont.load_default()
 
     # --- FIXED HEADER (NO OVERLAP) ---
-    draw.rectangle([0, 0, width, 160], fill="#001F33") # Increased height
-    draw.text((40, 55), "FITNESS EVOLUTION MACHINE", fill=CYAN, font=f_mid)
+    draw.rectangle([0, 0, width, 180], fill="#001F33") 
+    draw.text((40, 40), "FITNESS EVOLUTION MACHINE", fill=CYAN, font=f_mid)
     
-    # Pushed "DAY X OF 60" to the right and ensured it has space
+    # Position "DAY X OF 60" clearly below the title line but within header
     day_text = f"DAY {metrics['day_count']} OF 60"
-    draw.text((width - 350, 62), day_text, fill=CYAN, font=f_day) 
-    draw.line([0, 160, width, 160], fill=CYAN, width=5)
+    draw.text((40, 110), day_text, fill=CYAN, font=f_day) 
+    draw.line([0, 180, width, 180], fill=CYAN, width=5)
 
     # --- PRIMARY BIO-METRICS ---
-    draw.text((60, 200), "CURRENT MASS INDEX", fill=TEXT_GREY, font=f_reg)
-    draw.text((60, 250), f"{metrics['weight']}", fill="#FFFFFF", font=f_huge)
-    draw.text((480, 320), "KG", fill=CYAN, font=f_mid)
-    draw.text((60, 400), f"PREDICTED TREND: {metrics.get('weekly_loss', 0)} KG / WEEK", fill=NEON_GREEN, font=f_reg)
+    draw.text((60, 230), "CURRENT MASS INDEX", fill=TEXT_GREY, font=f_reg)
+    draw.text((60, 280), f"{metrics['weight']}", fill="#FFFFFF", font=f_huge)
+    draw.text((480, 350), "KG", fill=CYAN, font=f_mid)
+    draw.text((60, 430), f"PREDICTED TREND: {metrics.get('weekly_loss', 0)} KG / WEEK", fill=NEON_GREEN, font=f_reg)
 
     # VERTICAL LAYOUT CONFIG
     card_x, card_w = 60, 960
     card_h = 500
-    spacing = 100 # Increased spacing
-    current_y = 550 # Started much lower to avoid header collision
+    spacing = 120 
+    current_y = 600 # Start well below header/metrics
 
-    # 1. THERMODYNAMICS
+    # 1. THERMODYNAMICS (WIDE MACRO DONUT)
     draw_glass_card(draw, card_x, current_y, card_w, card_h, "Thermodynamics")
     latest = df.iloc[-1]
     p, c, f = latest.get('protein', 0), latest.get('carbs', 0), latest.get('fats', 0)
@@ -136,9 +136,9 @@ def render_summary(df, metrics, workouts_today):
     plt.close(fig)
     img.paste(Image.open(buf).resize((980, 500)), (50, current_y))
 
-    # --- FINAL FOOTER (PREVENTS CUT OFF) ---
-    footer_y = current_y + 600
-    sig_text = "PHYSIQUE: ASCENDING | FAT CELLS: TERMINATED"
-    draw.text((width//2 - 400, footer_y), sig_text, fill=CYAN, font=f_mid)
+    # --- FINAL FOOTER: NO OVERLAP ---
+    # We place the signature exactly at the bottom of the 3200px canvas
+    footer_text = "PHYSIQUE: ASCENDING | FAT CELLS: TERMINATED"
+    draw.text((width//2 - 400, height - 120), footer_text, fill=CYAN, font=f_mid)
     
     return img
