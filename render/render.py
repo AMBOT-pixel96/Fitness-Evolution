@@ -119,7 +119,7 @@ def render_summary(df, metrics, workouts_today):
                 color='#FFFFFF', weight='bold', fontsize=10,
                 bbox=dict(boxstyle='round,pad=0.2', fc=BG_DARK, ec=CYAN, lw=1))
 
-    ax.set_title("WEIGHT TREND (14D)", color=CYAN, fontweight='bold', fontsize=16, pad=25)
+    ax.set_title("WEIGHT TREND (14D)", color=CYAN, fontweight='bold', fontsize=22, pad=15)
     plt.xticks(rotation=25, color=TEXT_GREY, fontsize=10)
     plt.yticks(color=TEXT_GREY, fontsize=10)
     ax.grid(color='#1E3D52', linestyle='--', alpha=0.3)
@@ -135,7 +135,7 @@ def render_summary(df, metrics, workouts_today):
     deficit_perc = int((1 - (net_cals / maint)) * 100)
     
     # Explicitly placed within the 2800px limit
-    footer_text = f"THERMODYNAMIC STATUS: {deficit_perc}% DEFICIT"
-    draw.text((width//2 - 350, height - 120), footer_text, fill=NEON_GREEN, font=f_mid)
+    footer_text = f"Deficit: {deficit_perc}% "
+    draw.text((width//2 - 350, height - 120), footer_text, fill=NEON_GREEN, font=f_small)
     
     return img
