@@ -24,7 +24,7 @@ def send_eod_report():
     msg = MIMEMultipart("related")
     msg["From"] = secrets["email"]["sender_email"]
     msg["To"] = secrets["email"]["recipient_email"]
-    msg["Subject"] = f"A.R.V.I.S. | EOD REPORT | {datetime.now().strftime('%d %b')}"
+    msg["Subject"] = f"EOD FITNESS REPORT | {datetime.now().strftime('%d %b')}"
 
     body = f"""<body style="background-color: #050A0E; color: #00F2FF; font-family: monospace; padding: 20px;">
         <h2>SYSTEM STATUS: NOMINAL</h2>
